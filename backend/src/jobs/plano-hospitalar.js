@@ -22,7 +22,7 @@ function criarJob(totalClientes) {
   return id
 }
 function atualizar(id, dados) { const j=JOBS.get(id); if(j) JOBS.set(id,{...j,...dados}) }
-module.exports.getJobStatus = (req, res) => {
+function getJobStatus(req, res) {
   const job = JOBS.get(req.params.jobId)
   if (!job) return res.status(404).json({ erro:'Job não encontrado.' })
   res.json(job)
@@ -269,3 +269,4 @@ module.exports = async function routePlanoHospitalar(req, res) {
     log.ok(`Job ${jobId} concluído: ${nOk} OK · ${nSemBol} sem boletos · ${nErro} erro(s).`)
   })
 }
+module.exports.getJobStatus = getJobStatus

@@ -34,7 +34,7 @@ function atualizar(id, dados) {
   if (job) JOBS.set(id, { ...job, ...dados })
 }
 
-module.exports.getJobStatus = (req, res) => {
+function getJobStatus(req, res) {
   const job = JOBS.get(req.params.jobId)
   if (!job) return res.status(404).json({ erro: 'Job não encontrado.' })
   res.json(job)
@@ -339,3 +339,4 @@ module.exports = async function routeQuiverFaturasTransporte(req, res) {
     log.ok(`Job ${jobId} concluído: ${jobFinal.resultados.filter(r=>r.status==='OK').length}/${jobFinal.resultados.length} OK`)
   })
 }
+module.exports.getJobStatus = getJobStatus

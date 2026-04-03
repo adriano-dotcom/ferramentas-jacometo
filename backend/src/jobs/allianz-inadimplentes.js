@@ -36,7 +36,7 @@ function atualizar(id, dados) {
   if (job) JOBS.set(id, { ...job, ...dados })
 }
 
-module.exports.getJobStatus = (req, res) => {
+function getJobStatus(req, res) {
   const job = JOBS.get(req.params.jobId)
   if (!job) return res.status(404).json({ erro: 'Job não encontrado.' })
   res.json(job)
@@ -50,7 +50,7 @@ module.exports.getJobStatus = (req, res) => {
 const DOWNLOAD_DIR = path.resolve(process.env.DOWNLOAD_DIR || './downloads')
 const SCREENSHOTS  = path.resolve('./downloads/screenshots')
 
-const RAMOS: Record<string, string> = {
+const RAMOS = {
   '116': 'Auto',
   '309': 'RC Transportes',
   '312': 'Carga',
@@ -61,7 +61,7 @@ const RAMOS: Record<string, string> = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function screenshot(page: any, nome: string) {
+async function screenshot(page, nome) {
   try {
     fs.mkdirSync(SCREENSHOTS, { recursive: true })
     const p = path.join(SCREENSHOTS, nome)
@@ -70,11 +70,11 @@ async function screenshot(page: any, nome: string) {
   } catch { return null }
 }
 
-function nomRamo(codigo: string) {
+function nomRamo(codigo) {
   return RAMOS[codigo] ? `${RAMOS[codigo]} (Ramo ${codigo})` : `Ramo ${codigo}`
 }
 
-function classificarErro(msg: string) {
+function classificarErro(msg) {
   if (!msg) return { tipo: 'DESCONHECIDO', label: 'Erro desconhecido', orientacao: 'Tente novamente.' }
   const u = msg.toUpperCase()
   if (u.includes('LOGIN') || u.includes('SENHA') || u.includes('USUARIO') || u.includes('CREDENCIAL') || u.includes('SESSÃO'))
@@ -90,7 +90,7 @@ function classificarErro(msg: string) {
 
 // ── Login ─────────────────────────────────────────────────────────────────────
 
-async function fazerLogin(page: any) {
+async function fazerLogin(page) {
   log.info('Acessando AllianzNet...')
   await page.goto(PORTAL_URL, { waitUntil: 'networkidle', timeout: 45000 })
   await page.waitForTimeout(3000)
@@ -120,118 +120,102 @@ async function fazerLogin(page: any) {
 
 // ── Navegação ─────────────────────────────────────────────────────────────────
 
-async function navegarParaInadimplentes(page: any) {
-  log.info('Navegando: GESTÃO → Financeiro → Gestão de Parcelas → Gestão de Inadimplentes')
+async function navegarParaInadimplentes(page) {
+  log.info('Home → Alertas de Negócio → INADIMPLÊNCIAS')
 
-  // GESTÃO
-  await page.locator('a:has-text("GESTÃO"), a:has-text("Gestão"), li:has-text("GESTÃO") > a').first().click()
-  await page.waitForTimeout(1500)
-
-  // Financeiro
-  await page.locator('a:has-text("Financeiro")').first().click()
-  await page.waitForTimeout(1500)
-
-  // Gestão de Parcelas
-  await page.locator('a:has-text("Gestão de Parcelas")').first().click()
+  // Na home, seção "Alertas de Negócio" tem link direto "INADIMPLÊNCIAS"
+  const linkInad = page.locator('text=INADIMPLÊNCIAS').first()
+  await linkInad.waitFor({ timeout: 15000 })
+  await linkInad.click()
   await page.waitForLoadState('networkidle')
-  await page.waitForTimeout(2000)
+  await page.waitForTimeout(3000)
 
-  // Aba Gestão de Inadimplentes (pode ser aba ou link)
-  await page.locator('a:has-text("Gestão de Inadimplentes"), button:has-text("Gestão de Inadimplentes"), [class*="tab"]:has-text("Inadimplentes")').first().click()
-  await page.waitForLoadState('networkidle')
-  await page.waitForTimeout(2000)
-
-  log.ok('Tela de Gestão de Inadimplentes carregada.')
+  log.ok('Tela de Parcelas Inadimplentes carregada.')
 }
 
 // ── Extração ──────────────────────────────────────────────────────────────────
 
-async function pesquisarEExtrair(page: any) {
-  log.info('Pesquisando (filtros em branco = todos os registros)...')
+async function pesquisarEBaixarCSV(page) {
+  log.info('Pesquisando (filtros em branco = todos os ramos)...')
 
-  // Clica em Pesquisar com filtros vazios
-  await page.locator('button:has-text("Pesquisar"), input[value="Pesquisar"], button[type="submit"]').first().click()
-  await page.waitForLoadState('networkidle', { timeout: 30000 })
+  // Clica em Pesquisar com filtros vazios (todos os ramos, todos os registros)
+  await page.locator('a:has-text("Pesquisar"), input[value="Pesquisar"], button:has-text("Pesquisar")').first().click()
+  await page.waitForLoadState('networkidle', { timeout: 45000 })
   await page.waitForTimeout(3000)
 
-  const parcelas: any[] = []
-  let pagina = 1
-
-  while (true) {
-    log.info(`Extraindo página ${pagina}...`)
-
-    const linhas = await page.locator('table tbody tr, [class*="result-row"]:not([class*="header"])').all()
-
-    for (const linha of linhas) {
-      const colunas = await linha.locator('td').all()
-      if (colunas.length < 5) continue
-
-      const vals = await Promise.all(colunas.map((c: any) => c.textContent().then((t: string) => t?.trim() || '')))
-
-      // RECIBO | PARCELA | VENCIMENTO | CPF_CNPJ | NOME_SEGURADO | RAMO | DT_FIM_COBERTURA | DT_PREV_CANCEL | PREMIO_LIQ | COMISSAO
-      const parcela = {
-        recibo:          vals[0] || '',
-        parcela:         vals[1] || '',
-        vencimento:      vals[2] || '',
-        cpf_cnpj:        vals[3] || '',
-        segurado:        vals[4] || '',
-        ramo:            vals[5] || '',
-        fim_cobertura:   vals[6] || '',
-        prev_cancel:     vals[7] || '',
-        premio_liquido:  vals[8] || '',
-        comissao:        vals[9] || '',
-      }
-
-      // Ignora linhas sem dados reais (total, separadores)
-      if (parcela.recibo && parcela.segurado) {
-        // Evita duplicata conhecida do sistema
-        const isDuplicata = parcelas.some(p => p.recibo === parcela.recibo && p.parcela === parcela.parcela)
-        if (!isDuplicata) parcelas.push(parcela)
-      }
-    }
-
-    // Próxima página
-    const btnProxima = page.locator('a:has-text("Próxima"), a:has-text("Próximo"), [aria-label="Next"], .pagination-next:not(.disabled)').first()
-    const temProxima = await btnProxima.count() > 0 && await btnProxima.isEnabled()
-    if (!temProxima) break
-
-    await btnProxima.click()
-    await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(2000)
-    pagina++
-
-    if (pagina > 50) { log.warn('Limite de 50 páginas atingido.'); break }
+  // Verifica se tem resultados — espera pela tabela RESULTADO - TOTAIS
+  const temResultado = await page.locator('text=RESULTADO - TOTAIS, text=RESULTADO - POR PARCELA').first().count()
+  if (temResultado === 0) {
+    log.info('Nenhum resultado encontrado (sem inadimplentes).')
+    return { csvPath: null, totalParcelas: 0 }
   }
 
-  log.ok(`Total extraído: ${parcelas.length} parcela(s) em ${pagina} página(s).`)
-  return parcelas
+  // Clica em "Gerar Planilha" para baixar o CSV completo do portal
+  log.info('Clicando em Gerar Planilha para download do CSV...')
+  const btnGerar = page.locator('a:has-text("Gerar Planilha"), input[value="Gerar Planilha"], button:has-text("Gerar Planilha")').first()
+  await btnGerar.waitFor({ timeout: 15000 })
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 30000 }),
+    btnGerar.click(),
+  ])
+
+  fs.mkdirSync(DOWNLOAD_DIR, { recursive: true })
+  const hoje = new Date().toISOString().substring(0, 10).replace(/-/g, '_')
+  const dest = path.join(DOWNLOAD_DIR, `ALLIANZ_INADIMPLENTES_${hoje}.csv`)
+  await download.saveAs(dest)
+  log.ok(`CSV baixado: ${dest}`)
+
+  // Lê o CSV para contar parcelas e montar resultados
+  const parcelas = parsearCSV(dest)
+  log.ok(`CSV parseado: ${parcelas.length} parcela(s).`)
+
+  return { csvPath: dest, parcelas }
 }
 
-async function tentarExportar(page: any) {
-  try {
-    const btnExp = page.locator('button:has-text("Exportar"), a:has-text("Exportar"), a:has-text("Download"), a:has-text("CSV"), a:has-text("Excel")').first()
-    if (await btnExp.count() === 0) return null
+function parsearCSV(csvPath) {
+  const conteudo = fs.readFileSync(csvPath, 'latin1')
+  const linhas = conteudo.split('\n')
 
-    const [download] = await Promise.all([
-      page.waitForEvent('download', { timeout: 15000 }),
-      btnExp.click(),
-    ])
+  // Encontra a linha de cabeçalho (começa com RECIBO;)
+  const idxCab = linhas.findIndex(l => l.startsWith('RECIBO;'))
+  if (idxCab < 0) return []
 
-    fs.mkdirSync(DOWNLOAD_DIR, { recursive: true })
-    const hoje = new Date().toISOString().substring(0, 10).replace(/-/g, '_')
-    const dest = path.join(DOWNLOAD_DIR, `ALLIANZ_INADIMPLENTES_${hoje}_export.csv`)
-    await download.saveAs(dest)
-    log.ok(`Exportação do portal: ${dest}`)
-    return dest
-  } catch (e: any) {
-    log.warn(`Exportação falhou: ${e.message}`)
-    return null
+  const cabs = linhas[idxCab].split(';').map(c => c.trim())
+  const parcelas = []
+
+  for (let i = idxCab + 1; i < linhas.length; i++) {
+    const l = linhas[i].trim()
+    if (!l) continue
+    const cols = l.split(';').map(c => c.replace(/^="?|"?$/g, '').trim())
+    if (cols.length < 5) continue
+
+    const obj = {}
+    cabs.forEach((cab, idx) => { obj[cab] = cols[idx] || '' })
+
+    parcelas.push({
+      recibo:       obj['RECIBO'] || '',
+      ramo:         obj['RAMO'] || '',
+      ramo_br:      obj['RAMO_BR'] || '',
+      vencimento:   obj['VENCIMENTO'] || '',
+      apolice:      obj['APOLICE'] || '',
+      parcela:      obj['PARCELA'] || '',
+      cpf_cnpj:     obj['CPF_CNPJ'] || '',
+      segurado:     obj['SEGURADO'] || '',
+      premio:       obj['PREMIO_TOTAL'] || '',
+      comissao:     obj['COMISSAO'] || '',
+      prev_cancel:  obj['DT_PREV_CANC'] || '',
+      fim_cobert:   obj['DT_FIM_COBERT'] || '',
+      adesao:       obj['NR_ADESAO'] || '',
+    })
   }
+
+  return parcelas
 }
 
 // ── CSV manual ────────────────────────────────────────────────────────────────
 
-function gerarCSV(parcelas: any[]) {
+function gerarCSV(parcelas) {
   fs.mkdirSync(DOWNLOAD_DIR, { recursive: true })
   const hoje = new Date().toISOString().substring(0, 10).replace(/-/g, '_')
   const dest = path.join(DOWNLOAD_DIR, `ALLIANZ_INADIMPLENTES_${hoje}.csv`)
@@ -250,7 +234,7 @@ function gerarCSV(parcelas: any[]) {
 
 // ── Email ─────────────────────────────────────────────────────────────────────
 
-async function enviarEmail(parcelas: any[], csvPath: string | null, jobId: string) {
+async function enviarEmail(parcelas, csvPath, jobId) {
   const hoje = new Date().toLocaleDateString('pt-BR')
 
   const totalPremio = parcelas.reduce((a, p) => a + (parseFloat((p.premio_liquido||'0').replace('.','').replace(',','.')) || 0), 0)
@@ -258,7 +242,7 @@ async function enviarEmail(parcelas: any[], csvPath: string | null, jobId: strin
   const seguradosUnicos = new Set(parcelas.map(p => p.cpf_cnpj || p.segurado)).size
 
   // Agrupa por ramo
-  const porRamo: Record<string, any[]> = {}
+  const porRamo = {}
   for (const p of parcelas) {
     const r = p.ramo || 'Sem ramo'
     if (!porRamo[r]) porRamo[r] = []
@@ -271,7 +255,7 @@ async function enviarEmail(parcelas: any[], csvPath: string | null, jobId: strin
   }).join('\n')
 
   // Agrupa por segurado
-  const porSegurado: Record<string, any[]> = {}
+  const porSegurado = {}
   for (const p of parcelas) {
     const k = `${p.segurado}__${p.cpf_cnpj}`
     if (!porSegurado[k]) porSegurado[k] = []
@@ -305,7 +289,7 @@ async function enviarEmail(parcelas: any[], csvPath: string | null, jobId: strin
 
 // ── Handler principal ─────────────────────────────────────────────────────────
 
-module.exports = async function routeAllianzInadimplentes(req: any, res: any) {
+module.exports = async function routeAllianzInadimplentes(req, res) {
   const jobId = criarJob()
   log.info(`Job Allianz inadimplentes — ${jobId}`)
   res.json({ ok: true, jobId, mensagem: 'Iniciando extração de inadimplentes da Allianz.' })
@@ -325,43 +309,38 @@ module.exports = async function routeAllianzInadimplentes(req: any, res: any) {
       await fazerLogin(page)
       atualizar(jobId, { progresso: 1 })
 
-      // 2. Navegação
+      // 2. Navegação até INADIMPLÊNCIAS
       await navegarParaInadimplentes(page)
       atualizar(jobId, { progresso: 2 })
 
-      // 3. Extração (todas as páginas)
-      const parcelas = await pesquisarEExtrair(page)
-      atualizar(jobId, { progresso: 3 })
-
-      // 4. Exporta CSV (portal ou manual)
-      let csvPath = await tentarExportar(page)
-      if (!csvPath && parcelas.length > 0) csvPath = gerarCSV(parcelas)
+      // 3. Pesquisar e baixar CSV via "Gerar Planilha"
+      const { csvPath, parcelas } = await pesquisarEBaixarCSV(page)
       atualizar(jobId, { progresso: 4 })
 
       // Monta resultados para o JobStatus
-      const resultados = parcelas.length === 0
+      const resultados = (!parcelas || parcelas.length === 0)
         ? [{ nome: 'Nenhuma parcela em atraso encontrada', status: 'OK', label: null, orientacao: null, erro: null, tipo: null }]
         : parcelas.map(p => ({
             nome: p.segurado,
-            sub:  `${nomRamo(p.ramo)} · Recibo ${p.recibo} | Parcela ${p.parcela} | R$ ${p.premio_liquido} | Venc: ${p.vencimento} | Cancel: ${p.prev_cancel}`,
-            status: 'OK' as const,
+            sub:  `${nomRamo(p.ramo)} · Recibo ${p.recibo} | Apólice ${p.apolice} | R$ ${p.premio} | Venc: ${p.vencimento} | Cancel: ${p.prev_cancel}`,
+            status: 'OK',
             label: null, orientacao: null, erro: null, tipo: null,
           }))
 
       atualizar(jobId, { status: 'concluido', progresso: 5, resultados })
       await db.jobConcluido(jobId, 'allianz', { resultados, csvPath: csvPath || null }, _inicio)
 
-      // 5. Email
-      await enviarEmail(parcelas, csvPath, jobId)
-      log.ok(`Job ${jobId} concluído: ${parcelas.length} parcela(s).`)
+      // 4. Email
+      await enviarEmail(parcelas || [], csvPath, jobId)
+      log.ok(`Job ${jobId} concluído: ${(parcelas || []).length} parcela(s).`)
 
-    } catch (e: any) {
+    } catch (e) {
       log.error(`Erro crítico [${jobId}]: ${e.message}`)
       const ss = await screenshot(page, `erro_allianz_${Date.now()}.png`)
       const cl = classificarErro(e.message)
       atualizar(jobId, {
         status: 'erro_critico', erro: e.message,
-        resultados: [{ nome: 'Allianz — Extração falhou', sub: cl.label, status: 'FALHA' as const, label: cl.label, orientacao: cl.orientacao, erro: e.message, tipo: cl.tipo, screenshotPath: ss }],
+        resultados: [{ nome: 'Allianz — Extração falhou', sub: cl.label, status: 'FALHA', label: cl.label, orientacao: cl.orientacao, erro: e.message, tipo: cl.tipo, screenshotPath: ss }],
       })
       await db.jobErro(jobId, 'allianz', e.message, _inicio)
       await email.enviar({
@@ -373,3 +352,5 @@ module.exports = async function routeAllianzInadimplentes(req: any, res: any) {
     }
   })
 }
+
+module.exports.getJobStatus = getJobStatus
