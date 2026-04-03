@@ -123,54 +123,163 @@ async function fazerLogin(page) {
 async function navegarParaInadimplentes(page) {
   log.info('Home → Alertas de Negócio → INADIMPLÊNCIAS')
 
-  // Na home, seção "Alertas de Negócio" tem link direto "INADIMPLÊNCIAS"
+  // Na home, clica "INADIMPLÊNCIAS" (pode estar na page ou num frame)
   const linkInad = page.locator('text=INADIMPLÊNCIAS').first()
   await linkInad.waitFor({ timeout: 15000 })
   await linkInad.click()
   await page.waitForLoadState('networkidle')
-  await page.waitForTimeout(3000)
+  await page.waitForTimeout(4000)
 
   log.ok('Tela de Parcelas Inadimplentes carregada.')
+
+  // Após o clique, o conteúdo carrega dentro do iframe "appArea"
+  const ctx = await entrarNoFrame(page)
+  return ctx
+}
+
+// Entra no iframe "appArea" do AllianzNet (o portal renderiza tudo dentro dele)
+async function entrarNoFrame(page) {
+  const frames = page.frames()
+  log.info(`Frames detectados: ${frames.length} (${frames.map(f => f.name() || f.url().substring(0, 50)).join(', ')})`)
+
+  // Procura pelo frame "appArea" que é onde o AllianzNet renderiza o conteúdo
+  const appArea = frames.find(f => f.name() === 'appArea')
+  if (appArea) {
+    log.ok('Usando frame: appArea')
+    // Espera o frame carregar conteúdo
+    await appArea.waitForLoadState('domcontentloaded').catch(() => {})
+    await page.waitForTimeout(2000)
+    return appArea
+  }
+
+  // Fallback: tenta qualquer frame que não seja o principal
+  for (const frame of frames) {
+    if (frame === page.mainFrame()) continue
+    log.ok(`Usando frame fallback: ${frame.name() || frame.url().substring(0, 60)}`)
+    return frame
+  }
+
+  return page
 }
 
 // ── Extração ──────────────────────────────────────────────────────────────────
 
-async function pesquisarEBaixarCSV(page) {
-  log.info('Pesquisando (filtros em branco = todos os ramos)...')
+async function pesquisarEBaixarCSV(ctx, page, jobId) {
+  log.info('Verificando resultados (vindo de INADIMPLÊNCIAS, pode já estar carregado)...')
 
-  // Clica em Pesquisar com filtros vazios (todos os ramos, todos os registros)
-  await page.locator('a:has-text("Pesquisar"), input[value="Pesquisar"], button:has-text("Pesquisar")').first().click()
-  await page.waitForLoadState('networkidle', { timeout: 45000 })
-  await page.waitForTimeout(3000)
-
-  // Verifica se tem resultados — espera pela tabela RESULTADO - TOTAIS
-  const temResultado = await page.locator('text=RESULTADO - TOTAIS, text=RESULTADO - POR PARCELA').first().count()
+  // Resultados podem já estar carregados ao vir do link INADIMPLÊNCIAS
+  let temResultado = await ctx.locator('text=RESULTADO - TOTAIS').count()
   if (temResultado === 0) {
-    log.info('Nenhum resultado encontrado (sem inadimplentes).')
-    return { csvPath: null, totalParcelas: 0 }
+    log.info('Resultados não carregados, clicando em Pesquisar...')
+    await ctx.locator(':text-is("Pesquisar"), a:has-text("Pesquisar"), input[value*="Pesquisar"], button:has-text("Pesquisar")').first().click()
+    await page.waitForLoadState('networkidle', { timeout: 45000 })
+    await page.waitForTimeout(3000)
   }
 
-  // Clica em "Gerar Planilha" para baixar o CSV completo do portal
-  log.info('Clicando em Gerar Planilha para download do CSV...')
-  const btnGerar = page.locator('a:has-text("Gerar Planilha"), input[value="Gerar Planilha"], button:has-text("Gerar Planilha")').first()
-  await btnGerar.waitFor({ timeout: 15000 })
+  temResultado = await ctx.locator('text=RESULTADO - TOTAIS').count()
+  if (temResultado === 0) {
+    log.info('Nenhum resultado encontrado (sem inadimplentes).')
+    return { csvPaths: [], parcelas: [] }
+  }
 
-  const [download] = await Promise.all([
-    page.waitForEvent('download', { timeout: 30000 }),
-    btnGerar.click(),
-  ])
+  // Conta quantos ramos tem na tabela de TOTAIS
+  log.info('Contando ramos na tabela de RESULTADO - TOTAIS...')
 
+  async function contarLinhasRamo(frame) {
+    // Linhas de ramo na tabela TOTAIS têm formato:
+    // <tr><td>320096</td><td>116 - Acidentes Pessoais...</td><td>81</td>...
+    // Buscamos <tr> que tenha uma <td> com exatamente "320096" como texto
+    // e que tenha pelo menos 5 <td> (descarta filtros/cabeçalhos)
+    const todas = await frame.locator('tr:has(td)').all()
+    const linhas = []
+    for (const tr of todas) {
+      const tds = await tr.locator('td').all()
+      if (tds.length < 5) continue
+      // A primeira <td> deve conter o código do corretor
+      const primeiraTd = await tds[0].textContent().catch(() => '')
+      if (primeiraTd.trim() === '320096') {
+        const segundaTd = await tds[1].textContent().catch(() => '')
+        log.info(`  Ramo encontrado: ${segundaTd.trim()}`)
+        linhas.push(tr)
+      }
+    }
+    return linhas
+  }
+
+  let linhasRamo = await contarLinhasRamo(ctx)
+  log.info(`Ramos encontrados: ${linhasRamo.length}`)
+
+  // Itera por cada ramo: clica na linha → Gerar Planilha → Voltar
   fs.mkdirSync(DOWNLOAD_DIR, { recursive: true })
   const hoje = new Date().toISOString().substring(0, 10).replace(/-/g, '_')
-  const dest = path.join(DOWNLOAD_DIR, `ALLIANZ_INADIMPLENTES_${hoje}.csv`)
-  await download.saveAs(dest)
-  log.ok(`CSV baixado: ${dest}`)
+  const csvPaths = []
+  const todasParcelas = []
 
-  // Lê o CSV para contar parcelas e montar resultados
-  const parcelas = parsearCSV(dest)
-  log.ok(`CSV parseado: ${parcelas.length} parcela(s).`)
+  for (let idx = 0; idx < linhasRamo.length; idx++) {
+    // Re-localiza após cada "Voltar" (DOM muda)
+    const ctxAtualizar = await entrarNoFrame(page)
+    linhasRamo = await contarLinhasRamo(ctxAtualizar)
+    if (idx >= linhasRamo.length) break
 
-  return { csvPath: dest, parcelas }
+    const textoLinha = await linhasRamo[idx].textContent().catch(() => '')
+    const nomeRamo = textoLinha.replace(/\s+/g, ' ').trim().substring(0, 80)
+    log.info(`[${idx + 1}/${linhasRamo.length}] Abrindo ramo: ${nomeRamo}`)
+
+    // Clica na linha para entrar em POR PARCELA
+    await linhasRamo[idx].click()
+    await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(3000)
+
+    // Atualiza o contexto (pode ter mudado de frame)
+    const ctxAtual = await entrarNoFrame(page)
+
+    // Procura "Gerar Planilha"
+    const btnGerar = ctxAtual.locator('a:has-text("Gerar Planilha"), input[value*="Gerar Planilha"], :text-is("Gerar Planilha")').first()
+    const temBtn = await btnGerar.count()
+
+    if (temBtn > 0) {
+      log.info(`  → Gerar Planilha encontrado, baixando...`)
+      try {
+        const [download] = await Promise.all([
+          page.waitForEvent('download', { timeout: 30000 }),
+          btnGerar.click(),
+        ])
+        const ramoNum = textoLinha.match(/\d{3,4}/) ? textoLinha.match(/\d{3,4}/)[0] : idx
+        const dest = path.join(DOWNLOAD_DIR, `ALLIANZ_INADIMPLENTES_${hoje}_ramo${ramoNum}.csv`)
+        await download.saveAs(dest)
+        csvPaths.push(dest)
+        log.ok(`  → CSV baixado: ${dest}`)
+
+        // Parseia o CSV
+        const parcelas = parsearCSV(dest)
+        todasParcelas.push(...parcelas)
+        log.ok(`  → ${parcelas.length} parcela(s) neste ramo`)
+      } catch (e) {
+        log.warn(`  → Erro ao baixar CSV do ramo: ${e.message}`)
+      }
+    } else {
+      log.warn(`  → "Gerar Planilha" não encontrado neste ramo`)
+    }
+
+    // Atualiza progresso
+    atualizar(jobId, { progresso: 3, total: 5 })
+
+    // Clica em "Voltar" para retornar à tabela de TOTAIS
+    const btnVoltar = ctxAtual.locator('a:has-text("Voltar"), input[value*="Voltar"], :text-is("Voltar")').first()
+    if (await btnVoltar.count() > 0) {
+      await btnVoltar.click()
+      await page.waitForLoadState('networkidle')
+      await page.waitForTimeout(3000)
+    } else {
+      log.warn('  → Botão "Voltar" não encontrado, tentando navegar de volta...')
+      await page.goBack()
+      await page.waitForLoadState('networkidle')
+      await page.waitForTimeout(3000)
+    }
+  }
+
+  log.ok(`Total: ${csvPaths.length} arquivo(s) CSV, ${todasParcelas.length} parcela(s).`)
+  return { csvPaths, parcelas: todasParcelas }
 }
 
 function parsearCSV(csvPath) {
@@ -234,7 +343,9 @@ function gerarCSV(parcelas) {
 
 // ── Email ─────────────────────────────────────────────────────────────────────
 
-async function enviarEmail(parcelas, csvPath, jobId) {
+async function enviarEmail(parcelas, csvPaths, jobId) {
+  // csvPaths pode ser string (legado) ou array de caminhos
+  const anexos = Array.isArray(csvPaths) ? csvPaths : (csvPaths ? [csvPaths] : [])
   const hoje = new Date().toLocaleDateString('pt-BR')
 
   const totalPremio = parcelas.reduce((a, p) => a + (parseFloat((p.premio_liquido||'0').replace('.','').replace(',','.')) || 0), 0)
@@ -275,14 +386,14 @@ async function enviarEmail(parcelas, csvPath, jobId) {
 
   const corpo = semResultados
     ? `Prezado Adriano,\n\nNenhuma parcela em atraso encontrada no AllianzNet em ${hoje}.\n\nCorretor: JACOMETO CORRETORA DE SEGUROS LTDA\n\nAtenciosamente,\nSistema Ferramentas Jacometo`
-    : `RELATÓRIO DE PARCELAS EM ATRASO - ALLIANZ\nData: ${hoje}\nCorretor: JACOMETO CORRETORA DE SEGUROS LTDA\nJob: ${jobId}\n\n${'='.repeat(60)}\nRESUMO GERAL\n${'='.repeat(60)}\nTotal de parcelas inadimplentes: ${parcelas.length}\nTotal de segurados distintos: ${seguradosUnicos}\nPrêmio líquido total em atraso: R$ ${totalPremio.toLocaleString('pt-BR',{minimumFractionDigits:2})}\nComissão total em risco: R$ ${totalComissao.toLocaleString('pt-BR',{minimumFractionDigits:2})}\n\nPOR RAMO:\n${resumoRamos}\n\n${'='.repeat(60)}\nDETALHAMENTO POR SEGURADO\n${'='.repeat(60)}\n\n${detalhes}\n\n${csvPath ? 'Arquivo CSV em anexo.' : ''}\n\nAtenciosamente,\nSistema Ferramentas Jacometo`
+    : `RELATÓRIO DE PARCELAS EM ATRASO - ALLIANZ\nData: ${hoje}\nCorretor: JACOMETO CORRETORA DE SEGUROS LTDA\nJob: ${jobId}\n\n${'='.repeat(60)}\nRESUMO GERAL\n${'='.repeat(60)}\nTotal de parcelas inadimplentes: ${parcelas.length}\nTotal de segurados distintos: ${seguradosUnicos}\nPrêmio líquido total em atraso: R$ ${totalPremio.toLocaleString('pt-BR',{minimumFractionDigits:2})}\nComissão total em risco: R$ ${totalComissao.toLocaleString('pt-BR',{minimumFractionDigits:2})}\n\nPOR RAMO:\n${resumoRamos}\n\n${'='.repeat(60)}\nDETALHAMENTO POR SEGURADO\n${'='.repeat(60)}\n\n${detalhes}\n\n${anexos.length > 0 ? `${anexos.length} arquivo(s) CSV em anexo.` : ''}\n\nAtenciosamente,\nSistema Ferramentas Jacometo`
 
   await email.enviar({
     assunto: semResultados
       ? `Allianz — Sem inadimplentes em ${hoje}`
       : `[AllianzNet] Inadimplentes — ${parcelas.length} parcela(s) — ${hoje}`,
     corpo,
-    anexo: csvPath || undefined,
+    anexo: anexos.length > 0 ? anexos : undefined,
   })
   log.ok('Email enviado.')
 }
@@ -309,12 +420,12 @@ module.exports = async function routeAllianzInadimplentes(req, res) {
       await fazerLogin(page)
       atualizar(jobId, { progresso: 1 })
 
-      // 2. Navegação até INADIMPLÊNCIAS
-      await navegarParaInadimplentes(page)
+      // 2. Navegação até INADIMPLÊNCIAS (retorna o frame correto)
+      const ctx = await navegarParaInadimplentes(page)
       atualizar(jobId, { progresso: 2 })
 
-      // 3. Pesquisar e baixar CSV via "Gerar Planilha"
-      const { csvPath, parcelas } = await pesquisarEBaixarCSV(page)
+      // 3. Para cada ramo: clicar → Gerar Planilha → Voltar
+      const { csvPaths, parcelas } = await pesquisarEBaixarCSV(ctx, page, jobId)
       atualizar(jobId, { progresso: 4 })
 
       // Monta resultados para o JobStatus
@@ -328,11 +439,12 @@ module.exports = async function routeAllianzInadimplentes(req, res) {
           }))
 
       atualizar(jobId, { status: 'concluido', progresso: 5, resultados })
-      await db.jobConcluido(jobId, 'allianz', { resultados, csvPath: csvPath || null }, _inicio)
+      const csvPath = csvPaths.length > 0 ? csvPaths[0] : null
+      await db.jobConcluido(jobId, 'allianz', { resultados, csvPath }, _inicio)
 
-      // 4. Email
-      await enviarEmail(parcelas || [], csvPath, jobId)
-      log.ok(`Job ${jobId} concluído: ${(parcelas || []).length} parcela(s).`)
+      // 4. Email com todos os CSVs anexados
+      await enviarEmail(parcelas || [], csvPaths, jobId)
+      log.ok(`Job ${jobId} concluído: ${(parcelas || []).length} parcela(s), ${csvPaths.length} arquivo(s).`)
 
     } catch (e) {
       log.error(`Erro crítico [${jobId}]: ${e.message}`)
