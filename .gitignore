@@ -1,0 +1,32 @@
+# ── Segurança — NUNCA commitar ──────────────────────────────────
+.env
+.env.local
+.env.production
+credentials.json
+config/credenciais.json
+config/*.json
+downloads/
+logs/
+*.log
+
+# ── Node ─────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+
+# ── Next.js ──────────────────────────────────────────────────────
+.next/
+out/
+.vercel
+
+# ── Sistema ──────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Playwright ───────────────────────────────────────────────────
+test-results/
+playwright-report/
+downloads/screenshots/
+
+# ── Backup ───────────────────────────────────────────────────────
+*.bak
+*.tmp
