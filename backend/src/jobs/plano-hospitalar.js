@@ -70,116 +70,239 @@ async function processarCliente(browser, cliente, diaVenc) {
 
     // 1. Login
     await page.goto(PORTAL_URL, { waitUntil:'networkidle', timeout:45000 })
-    await page.waitForTimeout(2000)
-    await page.locator('input[name*="login"], input[id*="login"], input[type="text"]').first().fill(login)
+    await page.waitForTimeout(5000)
+    await page.locator('input[name*="login"], input[id*="login"], input[placeholder*="login"], input[placeholder*="Login"], input[type="text"]').first().fill(login)
     await page.locator('input[type="password"]').first().fill(senha)
-    await page.locator('button[type="submit"], button:has-text("Entrar"), button:has-text("Login")').first().click()
+    await page.locator('button[type="submit"], button:has-text("Entrar"), button:has-text("Login"), input[type="submit"]').first().click()
     await page.waitForLoadState('networkidle', { timeout:30000 })
-    await page.waitForTimeout(2500)
+    await page.waitForTimeout(5000)
 
-    // Verifica login
-    const loginErr = await page.locator('.error, .alert-danger, [class*="error"]').count()
-    if (loginErr>0 || page.url().includes('login')) {
+    // Verifica login — se tem mensagem de erro visível
+    const temErroCred = await page.locator('.alert-danger, .error, .alert-warning').filter({ hasText: /inválid|incorret|falhou/i }).count()
+    if (temErroCred > 0) {
       resultado.status = 'Erro de login'
       resultado.erroMsg = 'Login rejeitado — verifique as credenciais.'
       return resultado
     }
 
-    // 2. Boletos → Relação boletos
-    await page.locator('a:has-text("Boletos"), button:has-text("Boletos")').first().click()
-    await page.waitForTimeout(1000)
-    await page.locator('a:has-text("Relação boletos"), a:has-text("Relação de Boletos"), a:has-text("Relação")').first().click()
-    await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(2500)
+    log.ok(`  Login OK: ${nome}`)
+    await page.waitForTimeout(3000)
 
-    // 3. Identifica boletos "Em aberto"
-    const linhas = await page.locator('table tbody tr, [class*="row"]:not([class*="header"])').all()
-    let boletoAberto = null
+    // 2. Navega para Boletos via URL (o menu dropdown nem sempre funciona)
+    // Extrai o idSessao da URL atual para manter a sessão
+    const urlAtual = page.url()
+    const sessaoMatch = urlAtual.match(/idSessao=([a-f0-9]+)/)
+    const idSessao = sessaoMatch ? sessaoMatch[1] : ''
 
-    for (const linha of linhas) {
-      const texto = await linha.textContent().catch(()=>'')
-      if (/em\s*aberto/i.test(texto)) {
-        const cols = await linha.locator('td').all()
-        const v = await Promise.all(cols.map(c=>c.textContent().then(t=>t?.trim()||'')))
-        boletoAberto = {
-          documento:   v[0]||'',
-          vencimento:  v[1]||'',
-          referencia:  v[2]||'',
-          valor:       v[3]||'',
-          competencia: v[2]?.match(/\d{2}\/\d{4}/)?.[0] || '',
-          linha,
-        }
-        break
-      }
+    // Tenta clicar no menu primeiro
+    try {
+      await page.locator('text=Boletos').first().click()
+      await page.waitForTimeout(2000)
+      await page.locator('text=Relação boletos').first().click({ timeout: 3000 })
+      await page.waitForLoadState('networkidle')
+      await page.waitForTimeout(5000)
+    } catch {
+      // Fallback: navega direto pela URL
+      const baseUrl = PORTAL_URL.replace(/\/empresa.*/, '/empresa')
+      const boletosUrl = `${baseUrl}/mensalidades/pagamentos/boletos${idSessao ? '?idSessao=' + idSessao : ''}`
+      log.info(`  Menu falhou, navegando direto: ${boletosUrl}`)
+      await page.goto(boletosUrl, { waitUntil: 'networkidle', timeout: 30000 })
+      await page.waitForTimeout(5000)
     }
 
-    if (!boletoAberto) {
+    log.info(`  Tela de boletos: ${page.url()}`)
+
+    // 3. Verifica se tem "Em aberto" na página
+    const temAberto = await page.locator('text=Em aberto').first().count()
+    log.info(`  "Em aberto" encontrado: ${temAberto > 0 ? 'SIM' : 'NÃO'}`)
+
+    if (temAberto === 0) {
       resultado.status = 'Sem boletos em aberto'
+      log.info(`  Sem boletos em aberto para ${nome}`)
       return resultado
     }
 
-    resultado.valor       = boletoAberto.valor
-    resultado.vencimento  = boletoAberto.vencimento
-    resultado.competencia = boletoAberto.competencia
+    // Extrai dados visíveis
+    const textoPage = await page.locator('body').textContent().catch(() => '')
+    const matchVal = textoPage.match(/R\$[:\s]*([\d.,]+)/)
+    const matchComp = textoPage.match(/Competência[:\s]*(\d{2}\/\d{4})/) || textoPage.match(/(\d{2}\/\d{4})/)
+    const matchVenc = textoPage.match(/(\d{2}\/\d{2}\/\d{4})/)
 
-    // Formata competência para nome de arquivo
-    const compFile = boletoAberto.competencia.replace('/','-') || new Date().toLocaleDateString('pt-BR',{month:'2-digit',year:'numeric'}).replace('/','-')
+    resultado.valor       = matchVal ? `R$ ${matchVal[1]}` : '-'
+    resultado.vencimento  = matchVenc ? matchVenc[1] : '-'
+    resultado.competencia = matchComp ? matchComp[1] : ''
+
+    const compFile = resultado.competencia.replace('/','-') || new Date().toLocaleDateString('pt-BR',{month:'2-digit',year:'numeric'}).replace('/','-')
     const nomeBase = nome.replace(/[^A-Z0-9\s]/gi,'').replace(/\s+/g,'_').toUpperCase()
+    log.info(`  Boleto: Venc ${resultado.vencimento} ${resultado.valor}`)
 
-    // 4. Expande boleto (botão "Mais..." ou ícone)
-    const btnMais = boletoAberto.linha.locator('button:has-text("Mais"), a:has-text("Mais"), [class*="expand"], [class*="detalhe"]').first()
-    if (await btnMais.count()>0) { await btnMais.click(); await page.waitForTimeout(1500) }
+    // 4. Clica no ícone "+" (Mais...) da linha "Em aberto" para expandir
+    // Usa evaluate para encontrar a linha correta no DOM
+    const clicouMais = await page.evaluate(() => {
+      // Encontra todas as linhas/rows que contêm "Em aberto"
+      const tds = document.querySelectorAll('td, div')
+      for (const td of tds) {
+        if (td.textContent.trim() === 'Em aberto') {
+          // Encontrou a célula "Em aberto", agora pega o "+" na mesma linha
+          const row = td.closest('tr') || td.parentElement
+          if (row) {
+            // Procura o ícone "+" ou link "Mais" na linha
+            const plus = row.querySelector('a[class*="plus"], [class*="plus"], svg, a:last-child, td:last-child a, td:last-child button')
+            if (plus) { plus.click(); return 'clicked_row' }
+            // Fallback: clica no último <a> ou <td> da linha
+            const lastLink = row.querySelector('td:last-child')
+            if (lastLink) { lastLink.click(); return 'clicked_last_td' }
+          }
+        }
+      }
+      return null
+    })
+    log.info(`  Expandir "Mais...": ${clicouMais || 'NÃO encontrado'}`)
+    await page.waitForTimeout(5000)
 
     fs.mkdirSync(DOWNLOAD_DIR, {recursive:true})
 
-    // 5. Baixa boleto (ícone impressora — Boleto/Cartão)
+    // 5. Baixa boleto — ícone impressora ao lado de "Boleto/Cartão:"
     let boleto_ok = false
     try {
-      const btnBoleto = page.locator('[class*="boleto"] [title*="imprimir"], [class*="boleto"] [title*="PDF"], [class*="Boleto"] button, [class*="boleto"] a').first()
-      if (await btnBoleto.count()>0) {
-        const [dl] = await Promise.all([page.waitForEvent('download',{timeout:15000}), btnBoleto.click()])
-        const dest = path.join(DOWNLOAD_DIR,`Boleto_${nomeBase}_${compFile}.pdf`)
-        await dl.saveAs(dest)
-        boleto_ok = await uploadDrive(dest, `Boleto_${nomeBase}_${compFile}.pdf`)
-        try { fs.unlinkSync(dest) } catch {}
-      }
-    } catch (e) { log.warn(`Boleto de ${nome}: ${e.message}`) }
+      await page.waitForTimeout(2000)
+      const temBoleto = await page.locator('text=Boleto/Cartão').count() + await page.locator('text=Boleto/Cart').count()
+      log.info(`  Seção Boleto/Cartão: ${temBoleto > 0 ? 'SIM' : 'NÃO'}`)
 
-    // 6. Baixa fatura PDF e Excel
+      if (temBoleto > 0) {
+        // Mapeia TODOS os links da página para debug
+        const allLinks = await page.evaluate(() => {
+          const links = document.querySelectorAll('a[href]')
+          return Array.from(links).map(a => ({ href: a.href, text: a.textContent.trim().substring(0,30), title: a.title || '' }))
+        })
+        const boletoLinks = allLinks.filter(l => l.href.includes('boleto') || l.href.includes('Boleto') || l.href.includes('imprimir') || l.href.includes('print') || l.title.includes('oleto'))
+        log.info(`  Links boleto encontrados: ${boletoLinks.length}`)
+        boletoLinks.forEach(l => log.info(`    → ${l.href.substring(0,80)} [${l.title}]`))
+
+        // Clica no primeiro ícone/link perto de "Boleto/Cartão:"
+        // Usa Playwright locator relativo
+        const boletoClickResult = await page.evaluate(() => {
+          // Busca qualquer elemento que contenha "Boleto/Cart" como texto direto (não filho)
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+          while (walker.nextNode()) {
+            const node = walker.currentNode
+            if (node.textContent.includes('Boleto/Cart')) {
+              // Encontrou! Agora pega os links <a> próximos
+              const container = node.parentElement?.parentElement || node.parentElement
+              if (container) {
+                const links = container.querySelectorAll('a')
+                for (const link of links) {
+                  if (link.href && !link.textContent.includes('Boleto/Cart')) {
+                    link.click()
+                    return { clicked: true, href: link.href }
+                  }
+                }
+              }
+            }
+          }
+          return { clicked: false }
+        })
+        log.info(`  Clique boleto: ${JSON.stringify(boletoClickResult)}`)
+
+        if (boletoClickResult.clicked) {
+          await page.waitForTimeout(5000)
+          // Verifica se abriu nova aba com o PDF
+          const pages = context.pages()
+          if (pages.length > 1) {
+            const novaAba = pages[pages.length - 1]
+            await novaAba.waitForLoadState('load', { timeout: 15000 }).catch(() => {})
+            const novaUrl = novaAba.url()
+            log.info(`  Nova aba: ${novaUrl.substring(0,80)}`)
+
+            // Se é PDF, tenta download
+            if (novaUrl.includes('.pdf') || novaUrl.includes('boleto') || novaUrl.includes('print')) {
+              const dest = path.join(DOWNLOAD_DIR, `Boleto_${nomeBase}_${compFile}.pdf`)
+              // Tenta salvar como PDF via print
+              const pdfBuffer = await novaAba.pdf().catch(() => null)
+              if (pdfBuffer) {
+                fs.writeFileSync(dest, pdfBuffer)
+                boleto_ok = await uploadDrive(dest, `Boleto_${nomeBase}_${compFile}.pdf`)
+                try { fs.unlinkSync(dest) } catch {}
+                log.ok(`  ✓ Boleto salvo como PDF: ${nome}`)
+              }
+            }
+            await novaAba.close().catch(() => {})
+          }
+
+          // Verifica download direto
+          const dl = await page.waitForEvent('download', { timeout: 5000 }).catch(() => null)
+          if (dl) {
+            const dest = path.join(DOWNLOAD_DIR, `Boleto_${nomeBase}_${compFile}.pdf`)
+            await dl.saveAs(dest)
+            boleto_ok = await uploadDrive(dest, `Boleto_${nomeBase}_${compFile}.pdf`)
+            try { fs.unlinkSync(dest) } catch {}
+            log.ok(`  ✓ Boleto baixado: ${nome}`)
+          }
+        }
+      }
+    } catch (e) { log.warn(`  Boleto de ${nome}: ${e.message}`) }
+
+    // 6. Baixa fatura PDF
     let fatura_ok = false
     try {
-      // Fatura PDF
-      const btnFaturaPDF = page.locator('[class*="fatura"] [title*="PDF"], [class*="Fatura"] [title*="PDF"], [class*="fatura"] a[href*=".pdf"]').first()
-      if (await btnFaturaPDF.count()>0) {
-        const [dl] = await Promise.all([page.waitForEvent('download',{timeout:15000}), btnFaturaPDF.click()])
-        // Pode abrir nova aba
-        const novaAba = await Promise.race([
-          page.waitForEvent('popup',{timeout:3000}).catch(()=>null),
-          Promise.resolve(null),
-        ])
-        const pag = novaAba || page
-        const dest = path.join(DOWNLOAD_DIR,`Fatura_${nomeBase}_${compFile}.pdf`)
-        await dl.saveAs(dest)
-        await uploadDrive(dest,`Fatura_${nomeBase}_${compFile}.pdf`)
-        if (novaAba) await novaAba.close().catch(()=>{})
-        try { fs.unlinkSync(dest) } catch {}
-        fatura_ok = true
-      }
+      const temFatura = await page.locator('text=Fatura:').count()
+      log.info(`  Seção Fatura: ${temFatura > 0 ? 'SIM' : 'NÃO'}`)
 
-      // Fatura Excel
-      const btnFaturaXLS = page.locator('[class*="fatura"] [title*="Excel"], [class*="Fatura"] [title*="Excel"], [class*="fatura"] a[href*=".xlsx"]').first()
-      if (await btnFaturaXLS.count()>0) {
-        const [dl] = await Promise.all([page.waitForEvent('download',{timeout:15000}), btnFaturaXLS.click()])
-        const dest = path.join(DOWNLOAD_DIR,`Fatura_${nomeBase}_${compFile}.xlsx`)
-        await dl.saveAs(dest)
-        await uploadDrive(dest,`Fatura_${nomeBase}_${compFile}.xlsx`)
-        try { fs.unlinkSync(dest) } catch {}
-        fatura_ok = true
-      }
-    } catch (e) { log.warn(`Fatura de ${nome}: ${e.message}`) }
+      if (temFatura > 0) {
+        const faturaClickResult = await page.evaluate(() => {
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+          while (walker.nextNode()) {
+            const node = walker.currentNode
+            if (node.textContent.trim() === 'Fatura:') {
+              const container = node.parentElement?.parentElement || node.parentElement
+              if (container) {
+                const links = container.querySelectorAll('a')
+                for (const link of links) {
+                  if (link.href && !link.textContent.includes('Fatura')) {
+                    link.click()
+                    return { clicked: true, href: link.href }
+                  }
+                }
+              }
+            }
+          }
+          return { clicked: false }
+        })
+        log.info(`  Clique fatura: ${JSON.stringify(faturaClickResult)}`)
 
-    resultado.status = 'OK - Drive'
-    resultado.drive  = true
+        if (faturaClickResult.clicked) {
+          await page.waitForTimeout(5000)
+          const pages = context.pages()
+          if (pages.length > 1) {
+            const novaAba = pages[pages.length - 1]
+            await novaAba.waitForLoadState('load', { timeout: 15000 }).catch(() => {})
+            const dest = path.join(DOWNLOAD_DIR, `Fatura_${nomeBase}_${compFile}.pdf`)
+            const pdfBuffer = await novaAba.pdf().catch(() => null)
+            if (pdfBuffer) {
+              fs.writeFileSync(dest, pdfBuffer)
+              await uploadDrive(dest, `Fatura_${nomeBase}_${compFile}.pdf`)
+              try { fs.unlinkSync(dest) } catch {}
+              fatura_ok = true
+              log.ok(`  ✓ Fatura salva: ${nome}`)
+            }
+            await novaAba.close().catch(() => {})
+          }
+
+          const dl = await page.waitForEvent('download', { timeout: 5000 }).catch(() => null)
+          if (dl) {
+            const dest = path.join(DOWNLOAD_DIR, `Fatura_${nomeBase}_${compFile}.pdf`)
+            await dl.saveAs(dest)
+            await uploadDrive(dest, `Fatura_${nomeBase}_${compFile}.pdf`)
+            try { fs.unlinkSync(dest) } catch {}
+            fatura_ok = true
+            log.ok(`  ✓ Fatura baixada: ${nome}`)
+          }
+        }
+      }
+    } catch (e) { log.warn(`  Fatura de ${nome}: ${e.message}`) }
+
+    resultado.status = boleto_ok || fatura_ok ? 'OK - Drive' : 'Sem downloads'
+    resultado.drive  = boleto_ok || fatura_ok
 
   } catch (e) {
     log.error(`Erro ao processar ${nome}: ${e.message}`)
@@ -260,8 +383,7 @@ module.exports = async function routePlanoHospitalar(req, res) {
     await email.enviar({
       assunto: `Resumo - Plano Hospitalar - Vencimento dia ${diaVenc} - ${hoje} - ${clientes.length} clientes processados`,
       corpo,
-      para: `mayara@jacometo.com.br`,
-      cc:   `adriano@jacometo.com.br`,
+      para: process.env.EMAIL_EQUIPE || 'jacometo@jacometo.com.br',
     })
 
     atualizar(jobId, { status:'concluido' })
