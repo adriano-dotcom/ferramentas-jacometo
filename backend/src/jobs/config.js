@@ -162,7 +162,9 @@ function salvarConfig(config) {
 
 function getCred(seguradora) {
   const config = lerConfig()
-  return config[seguradora]?.campos || {}
+  const seg = config[seguradora]
+  if (!seg) return {}
+  return { url: seg.url || '', ...seg.campos }
 }
 
 module.exports.getCred = getCred
