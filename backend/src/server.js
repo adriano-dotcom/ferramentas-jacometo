@@ -7,6 +7,7 @@ const multer  = require('multer')
 const path    = require('path')
 const fs      = require('fs')
 const log     = require('./lib/logger')
+const db      = require('./lib/database')
 
 const app  = express()
 const PORT = process.env.PORT || 3001
