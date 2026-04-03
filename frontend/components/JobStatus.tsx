@@ -3,7 +3,7 @@
 // Componente reutilizável de acompanhamento de job com polling automático.
 // Usado em todas as telas de ferramentas.
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 export type StatusJob = 'idle' | 'extraindo' | 'cadastrando' | 'executando' | 'baixando' | 'processando' | 'concluido' | 'erro_critico'
 
@@ -88,12 +88,7 @@ function BadgeStatus({ status, label }: { status: 'OK'|'FALHA'|'AVISO', label?: 
 }
 
 function ResultadoItem({ r, idx, abertoPadrao }: { r: Resultado; idx: number; abertoPadrao: boolean }) {
-  const [aberto, setAberto] = (typeof window !== 'undefined')
-    ? [abertoPadrao, () => {}]
-    : [false, () => {}]
-
-  // useState no client
-  const [open, setOpen] = require('react').useState(abertoPadrao)
+  const [open, setOpen] = useState(abertoPadrao)
   const cor = corDoTipo(r.tipo)
 
   return (
