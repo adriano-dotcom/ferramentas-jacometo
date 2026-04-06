@@ -180,6 +180,10 @@ function lerConfig() {
         ),
       }
     }
+    // Merge: adiciona entradas do PADRAO que não existem no arquivo salvo
+    for (const [key, seg] of Object.entries(PADRAO)) {
+      if (!conf[key]) conf[key] = seg
+    }
     return conf
   } catch (e) {
     log.error(`Erro ao ler config: ${e.message}`)

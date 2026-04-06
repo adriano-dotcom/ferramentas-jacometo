@@ -3,10 +3,11 @@ import Link from 'next/link'
 import { useState } from 'react'
 
 const USUARIO_CORES: Record<string, string> = {
-  'Giovana':  '#1D9E75',
-  'João':     '#185FA5',
-  'Bárbara':  '#993556',
-  'Todos':    '#5F5E5A',
+  'Giovana':   '#1D9E75',
+  'João':      '#185FA5',
+  'Bárbara':   '#993556',
+  'Giacomet':  '#B8860B',
+  'Todos':     '#5F5E5A',
 }
 
 const FERRAMENTAS = [
@@ -145,6 +146,63 @@ const FERRAMENTAS = [
     tipo: 'automatico',
     status: 'ativo',
   },
+  // ══════════════════════════════════════════════════════════════
+  // GIACOMET — Parcelas em Atraso
+  // ══════════════════════════════════════════════════════════════
+  {
+    slug: 'giacomet-allianz-inadimplentes',
+    nome: 'Giacomet — Allianz',
+    descricao: 'AllianzNet · Gestão de Inadimplentes · todas as páginas · Giacomet',
+    responsavel: 'Giacomet',
+    seguradora: 'Allianz',
+    tipo: 'automatico',
+    status: 'ativo',
+  },
+  {
+    slug: 'giacomet-akad-inadimplentes',
+    nome: 'Giacomet — AKAD',
+    descricao: 'AKAD Digital · Parcelas em Aberto · Giacomet',
+    responsavel: 'Giacomet',
+    seguradora: 'AKAD',
+    tipo: 'automatico',
+    status: 'ativo',
+  },
+  {
+    slug: 'giacomet-mitsui-inadimplentes',
+    nome: 'Giacomet — Mitsui',
+    descricao: 'Kit Online · Parcelas Pendentes · Giacomet',
+    responsavel: 'Giacomet',
+    seguradora: 'Mitsui',
+    tipo: 'automatico',
+    status: 'ativo',
+  },
+  {
+    slug: 'giacomet-yelum-inadimplentes',
+    nome: 'Giacomet — Yelum',
+    descricao: 'Gestão de Parcelas · últimos 90 dias · Giacomet',
+    responsavel: 'Giacomet',
+    seguradora: 'Yelum',
+    tipo: 'automatico',
+    status: 'ativo',
+  },
+  {
+    slug: 'giacomet-unimed-inadimplentes',
+    nome: 'Giacomet — Unimed Seguros',
+    descricao: 'Relatório de Inadimplência · 3 categorias · Giacomet',
+    responsavel: 'Giacomet',
+    seguradora: 'Unimed',
+    tipo: 'automatico',
+    status: 'ativo',
+  },
+  {
+    slug: 'giacomet-metlife-inadimplentes',
+    nome: 'Giacomet — MetLife',
+    descricao: 'Cobrança · Clientes inadimplentes · Giacomet',
+    responsavel: 'Giacomet',
+    seguradora: 'MetLife',
+    tipo: 'automatico',
+    status: 'ativo',
+  },
   {
     slug: 'plano-hospitalar',
     nome: 'Plano Hospitalar — Boletos',
@@ -199,7 +257,7 @@ const TIPO_LABEL: Record<string, string> = {
 
 export default function FeramentasPage() {
   const [filtro, setFiltro] = useState('Todos')
-  const usuarios = ['Todos', 'Giovana', 'João', 'Bárbara']
+  const usuarios = ['Todos', 'Giovana', 'João', 'Bárbara', 'Giacomet']
 
   const lista = filtro === 'Todos'
     ? FERRAMENTAS
@@ -310,7 +368,8 @@ function FerramentaCard({ f }: { f: typeof FERRAMENTAS[0] }) {
           fontSize: 11, padding: '2px 8px',
           borderRadius: 20,
           background: f.responsavel === 'Giovana' ? '#E1F5EE' :
-                      f.responsavel === 'João' ? '#E6F1FB' : '#FBEAF0',
+                      f.responsavel === 'João' ? '#E6F1FB' :
+                      f.responsavel === 'Giacomet' ? '#FFF3CD' : '#FBEAF0',
           color: cor,
           fontWeight: 500,
         }}>{f.responsavel}</span>

@@ -50,15 +50,19 @@ function classErr(msg) {
 }
 
 module.exports = async function routeAkadInadimplentes(req, res) {
+  const corretora = req.body?.corretora || 'jacometo'
+  const credKey = corretora === 'giacomet' ? 'giacomet_akad' : 'akad'
+  const nomeCorretora = corretora === 'giacomet' ? 'GIACOMET' : 'JACOMETO'
+
   const jobId = criarJob()
-  log.info(`Job AKAD inadimplentes — ${jobId}`)
+  log.info(`Job AKAD inadimplentes [${nomeCorretora}] — ${jobId}`)
   res.json({ ok:true, jobId, mensagem:'Iniciando extração de inadimplentes da AKAD.' })
 
   setImmediate(async () => {
     const _inicio = new Date()
-    await db.jobIniciado(jobId, 'akad')
+    await db.jobIniciado(jobId, credKey)
     // Recarrega credenciais a cada execução (para pegar atualizações do painel)
-    const _creds = getCred('akad')
+    const _creds = getCred(credKey)
     PORTAL_URL = _creds.url || PORTAL_URL
     LOGIN_CPF = _creds.cpf || LOGIN_CPF
     LOGIN_SENHA = _creds.senha || LOGIN_SENHA

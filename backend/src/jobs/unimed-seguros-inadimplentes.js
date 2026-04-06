@@ -204,15 +204,19 @@ function gerarCSV(parcelas) {
 // ── Handler principal ─────────────────────────────────────────────────────────
 
 module.exports = async function routeUnimedSegurosInadimplentes(req, res) {
+  const corretora = req.body?.corretora || 'jacometo'
+  const credKey = corretora === 'giacomet' ? 'giacomet_unimed' : 'unimed_seguros'
+  const nomeCorretora = corretora === 'giacomet' ? 'GIACOMET' : 'JACOMETO'
+
   const jobId = criarJob()
-  log.info(`Job Unimed Seguros inadimplentes — ${jobId}`)
+  log.info(`Job Unimed Seguros inadimplentes [${nomeCorretora}] — ${jobId}`)
   res.json({ ok:true, jobId, mensagem:'Iniciando extração de inadimplentes da Unimed Seguros (Vida, Ramos Elementares, Previdência).' })
 
   setImmediate(async () => {
     const _inicio = new Date()
-    await db.jobIniciado(jobId, 'unimed_seguros')
+    await db.jobIniciado(jobId, credKey)
     // Recarrega credenciais a cada execução (para pegar atualizações do painel)
-    const _creds = getCred('unimed_seguros')
+    const _creds = getCred(credKey)
     LOGIN_CPF  = _creds.cpf || LOGIN_CPF
     PORTAL_URL = _creds.url || PORTAL_URL
     LOGIN_SENHA = _creds.senha || LOGIN_SENHA

@@ -401,15 +401,19 @@ async function enviarEmail(parcelas, csvPaths, jobId) {
 // ── Handler principal ─────────────────────────────────────────────────────────
 
 module.exports = async function routeAllianzInadimplentes(req, res) {
+  const corretora = req.body?.corretora || 'jacometo'
+  const credKey = corretora === 'giacomet' ? 'giacomet_allianz' : 'allianz'
+  const nomeCorretora = corretora === 'giacomet' ? 'GIACOMET' : 'JACOMETO'
+
   const jobId = criarJob()
-  log.info(`Job Allianz inadimplentes — ${jobId}`)
-  res.json({ ok: true, jobId, mensagem: 'Iniciando extração de inadimplentes da Allianz.' })
+  log.info(`Job Allianz inadimplentes (${nomeCorretora}) — ${jobId}`)
+  res.json({ ok: true, jobId, mensagem: `Iniciando extração de inadimplentes da Allianz (${nomeCorretora}).` })
 
   setImmediate(async () => {
     const _inicio = new Date()
-    await db.jobIniciado(jobId, 'allianz')
-    // Recarrega credenciais a cada execução (para pegar atualizações do painel)
-    const _creds = getCred('allianz')
+    await db.jobIniciado(jobId, credKey)
+    // Recarrega credenciais a cada execução
+    const _creds = getCred(credKey)
     PORTAL_URL = _creds.url || PORTAL_URL
     LOGIN_USER = _creds.usuario || LOGIN_USER
     LOGIN_SENHA = _creds.senha || LOGIN_SENHA
