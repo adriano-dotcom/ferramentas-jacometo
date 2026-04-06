@@ -110,6 +110,54 @@ const PADRAO = {
       drive_folder: '1fghBuGnZSp3SzcVwSveoB7HYFEPVp6yz',
     },
   },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // GIACOMET — mesmas seguradoras, credenciais diferentes
+  // ══════════════════════════════════════════════════════════════════════
+  giacomet_yelum: {
+    label:  'Giacomet — Yelum',
+    url:    'https://auth-broker.yelumseguros.com.br/login',
+    campos: {
+      cpf:        '02057398900',
+      senha:      '@Giacomet123',
+      portal_url: 'https://novomeuespacocorretor.yelumseguros.com.br/lp/payment-management',
+    },
+  },
+  giacomet_mitsui: {
+    label:  'Giacomet — Mitsui',
+    url:    'https://www4.msig.com.br/kitonline/',
+    campos: { usuario:'2144336b', senha:'@Jaco9001' },
+  },
+  giacomet_allianz: {
+    label:  'Giacomet — Allianz',
+    url:    'https://www.allianznet.com.br/ngx-epac/public/home',
+    campos: { usuario:'BA253874', senha:'@Giacomet123@4' },
+  },
+  giacomet_unimed: {
+    label:  'Giacomet — Unimed',
+    url:    'https://portal.segurosunimed.com.br',
+    campos: { cpf:'02057398900', senha:'@Giacomet123' },
+  },
+  giacomet_akad: {
+    label:  'Giacomet — AKAD',
+    url:    'https://digital.akadseguros.com.br',
+    campos: { cpf:'020.573.989-00', senha:'Giaco9000@j2j@' },
+  },
+  giacomet_aig: {
+    label:  'Giacomet — AIG',
+    url:    '',
+    campos: { email:'contato@giacometseguros.com', senha:'HBuj+%76' },
+  },
+  giacomet_berkley: {
+    label:  'Giacomet — Berkley',
+    url:    '',
+    campos: { email:'contato@giacometseguros.com -232144336', senha:'@Jaco9001' },
+  },
+  giacomet_metlife: {
+    label:  'Giacomet — MetLife Vida e Prev',
+    url:    'https://login.metlife.com.br/login/dynamic/Login.action',
+    campos: { usuario:'000232144336', senha:'@Giacomet2023b' },
+  },
 }
 
 // ── Helpers de arquivo ────────────────────────────────────────────────────────
