@@ -164,15 +164,6 @@ const FERRAMENTAS = [
     status: 'ativo',
   },
   {
-    slug: 'clientes',
-    nome: '🏥 Clientes Plano Hospitalar',
-    descricao: 'Gerenciar lista de clientes — adicionar, editar, ativar e filtrar por vencimento',
-    responsavel: 'Bárbara',
-    seguradora: 'Saúde',
-    tipo: 'upload',
-    status: 'ativo',
-  },
-  {
     slug: 'configuracoes',
     nome: '⚙️ Configurações',
     descricao: 'Atualizar usuários, senhas e URLs das seguradoras — sem mexer no código',
