@@ -103,8 +103,8 @@ async function fazerLogin(page) {
   const campoSenha = page.locator('input[name="IDToken2"], input[id="IDToken2"], input[type="password"]').first()
   await campoSenha.fill(LOGIN_SENHA)
 
-  // Botão LOG IN
-  await page.locator('input[type="submit"][value="LOG IN"], button:has-text("LOG IN"), button:has-text("Entrar"), button[type="submit"]').first().click()
+  // Botão ENTRAR (texto pode ser "ENTRAR", "Entrar", "LOG IN")
+  await page.locator('button:has-text("ENTRAR"), button:has-text("Entrar"), button:has-text("LOG IN"), input[type="submit"], button[type="submit"]').first().click()
   await page.waitForLoadState('networkidle', { timeout: 45000 })
   await page.waitForTimeout(5000) // Redirect pós-SSO demora
 
@@ -117,9 +117,51 @@ async function fazerLogin(page) {
     }
   }
 
-  // Verifica se chegou no portal
-  if (!page.url().includes('portalparceiros') && !page.url().includes('portal')) {
-    await page.waitForURL('**/portalparceiros**', { timeout: 15000 }).catch(() => {})
+  // Fecha banner de cookies se aparecer
+  const btnCookie = page.locator('text=ENTENDI, button:has-text("ENTENDI"), a:has-text("ENTENDI")').first()
+  if (await btnCookie.count() > 0) {
+    await btnCookie.click().catch(() => {})
+    await page.waitForTimeout(2000)
+    log.info('Banner de cookies fechado.')
+  }
+
+  // Tela intermediária: "Acesse os Portais" — clica no card "Corretor"
+  const temCorretor = await page.locator('text=Corretor').count()
+  if (temCorretor > 0) {
+    log.info('Tela de seleção de portal — clicando em "Corretor"...')
+
+    // Pode abrir nova aba — espera popup
+    const popupPromise = page.context().waitForEvent('page', { timeout: 15000 }).catch(() => null)
+
+    // Clica no card com Playwright locator (force click para garantir)
+    await page.locator(':text-is("Corretor")').first().click({ force: true })
+    await page.waitForTimeout(5000)
+
+    // Verifica se abriu nova aba
+    const popup = await popupPromise
+    if (popup) {
+      log.info(`  Corretor abriu nova aba: ${popup.url().substring(0, 80)}`)
+      await popup.waitForLoadState('networkidle', { timeout: 30000 })
+      await popup.waitForTimeout(5000)
+      // Usa a nova aba como página principal para o resto do fluxo
+      // Retorna a popup para ser usada
+      return popup
+    }
+
+    // Se não abriu nova aba, navega direto para o portal do corretor
+    const urlAtual = page.url()
+    log.info(`  URL após clique Corretor: ${urlAtual}`)
+    if (urlAtual.includes('Acesse') || urlAtual.includes('portais') || !urlAtual.includes('portal')) {
+      // Tenta navegar direto para o portal do corretor
+      log.info('  Clique não navegou, tentando URL direta...')
+      await page.goto(PORTAL_URL, { waitUntil: 'networkidle', timeout: 30000 })
+      await page.waitForTimeout(5000)
+    }
+  }
+
+  // Verifica se chegou no portal do corretor
+  if (!page.url().includes('portalparceiros') && !page.url().includes('portal-corretor')) {
+    await page.waitForURL('**/portal**', { timeout: 15000 }).catch(() => {})
   }
 
   log.ok(`Login Tokio Marine realizado. URL: ${page.url()}`)
@@ -130,18 +172,19 @@ async function fazerLogin(page) {
 async function navegarParaInadimplentes(page) {
   log.info('Navegando: FINANCEIRO → Relatórios Clientes → Clientes Inadimplentes')
 
-  // FINANCEIRO (menu superior)
+  // FINANCEIRO (menu lateral — clica para expandir)
   await page.locator('a:has-text("FINANCEIRO"), li:has-text("FINANCEIRO") > a, [data-qa*="financeiro"]').first().click()
+  await page.waitForTimeout(3000)
+
+  // Relatórios Clientes (submenu dentro do accordion FINANCEIRO)
+  // O submenu pode não estar visível após o clique — usa force click
+  await page.locator('a:has-text("Relatórios Clientes"), a:has-text("Relatórios de Clientes")').first().click({ force: true })
   await page.waitForTimeout(2000)
 
-  // Relatórios Clientes (submenu)
-  await page.locator('a:has-text("Relatórios Clientes"), a:has-text("Relatórios de Clientes")').first().click()
-  await page.waitForTimeout(1500)
-
-  // Clientes Inadimplentes
-  await page.locator('a:has-text("Clientes inadimplentes"), a:has-text("Inadimplentes")').first().click()
+  // Clientes Inadimplentes (sub-submenu)
+  await page.locator('a:has-text("Clientes inadimplentes"), a:has-text("Inadimplentes")').first().click({ force: true })
   await page.waitForLoadState('networkidle', { timeout: 30000 })
-  await page.waitForTimeout(3000)
+  await page.waitForTimeout(5000)
 
   log.ok('Tela de Clientes Inadimplentes carregada.')
 }
@@ -316,16 +359,16 @@ module.exports = async function routeTokioInadimplentes(req, res) {
     const { browser, page } = await abrirBrowser()
     try {
       atualizar(jobId, { progresso: 0 })
-      await fazerLogin(page)
+      const portalPage = await fazerLogin(page) || page
       atualizar(jobId, { progresso: 1 })
 
-      await navegarParaInadimplentes(page)
+      await navegarParaInadimplentes(portalPage)
       atualizar(jobId, { progresso: 2 })
 
-      const parcelas = await extrairTabela(page)
+      const parcelas = await extrairTabela(portalPage)
       atualizar(jobId, { progresso: 3 })
 
-      let csvPath = await tentarExportar(page)
+      let csvPath = await tentarExportar(portalPage)
       if (!csvPath && parcelas.length > 0) csvPath = gerarCSV(parcelas)
       atualizar(jobId, { progresso: 4 })
 
