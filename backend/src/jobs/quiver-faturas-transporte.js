@@ -1,5 +1,5 @@
 // src/jobs/quiver-faturas-transporte.js
-require('dotenv').config()
+require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env'), override: true })
 const { getCred } = require('./config')
 const db = require('../lib/database')
 const fs     = require('fs')
@@ -34,7 +34,7 @@ function atualizar(id, dados) {
   if (job) JOBS.set(id, { ...job, ...dados })
 }
 
-module.exports.getJobStatus = (req, res) => {
+function getJobStatus(req, res) {
   const job = JOBS.get(req.params.jobId)
   if (!job) return res.status(404).json({ erro: 'Job não encontrado.' })
   res.json(job)
@@ -157,7 +157,11 @@ function classificarErro(msg) {
 async function extrairDadosPDF(pdfBase64, nomeArquivo) {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.ANTHROPIC_API_KEY || '',
+      'anthropic-version': '2023-06-01',
+    },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1000,
@@ -165,14 +169,29 @@ async function extrairDadosPDF(pdfBase64, nomeArquivo) {
         role: 'user',
         content: [
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } },
-          { type: 'text', text: `Extraia dados desta fatura de seguro transporte. Retorne APENAS JSON sem markdown:\n{"seguradora":"Tokio Marine|Sompo|AKAD|AXA|Chubb|Allianz","apolice":"","endosso":"(Allianz: usar RODAPÉ)","ramo":"54 ou 55","segurado":"","cnpj":"","emissao":"DD/MM/YYYY","proposta_cia":"","inicio_vigencia":"DD/MM/YYYY","fim_vigencia":"DD/MM/YYYY","premio_liquido":"ex:1.234,56","vencimento":"DD/MM/YYYY"}` },
+          { type: 'text', text: `Extraia dados desta fatura de seguro transporte. Retorne APENAS JSON sem markdown.
+
+REGRA IMPORTANTE PARA ALLIANZ:
+- O número do endosso/fatura da Allianz está SEMPRE no RODAPÉ DA PÁGINA 2 (última página).
+- O rodapé mostra "Nº Apólice: XXXXXXXXXXXXXXXXXXX" e "Nº Fatura: N"
+- Use o "Nº Fatura" do rodapé da página 2 como endosso — NÃO use o da página 1 pois pode ser diferente.
+- A apólice completa também deve vir do rodapé da página 2.
+
+Formato de resposta:
+{"seguradora":"Tokio Marine|Sompo|AKAD|AXA|Chubb|Allianz","apolice":"número completo","endosso":"(Allianz: Nº Fatura do RODAPÉ PÁG 2)","ramo":"54 ou 55","segurado":"","cnpj":"","emissao":"DD/MM/YYYY","proposta_cia":"","inicio_vigencia":"DD/MM/YYYY","fim_vigencia":"DD/MM/YYYY","premio_liquido":"ex:1.234,56","vencimento":"DD/MM/YYYY"}` },
         ],
       }],
     }),
   })
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => '')
+    log.error(`Claude API ${response.status}: ${errBody.substring(0, 200)}`)
+    return null
+  }
   const data = await response.json()
   const texto = data.content?.find(b => b.type === 'text')?.text || ''
-  try { return JSON.parse(texto.replace(/```json|```/g, '').trim()) } catch { return null }
+  log.info(`Claude extraiu: ${texto.substring(0, 150)}`)
+  try { return JSON.parse(texto.replace(/```json|```/g, '').trim()) } catch { log.error(`JSON parse falhou: ${texto.substring(0,100)}`); return null }
 }
 
 // ── Playwright ────────────────────────────────────────────────────────────────
@@ -205,7 +224,21 @@ async function screenshot(page, nome) {
 }
 
 async function cadastrarFatura(page, fatura, idx) {
-  log.info(`[${idx + 1}] ${fatura.segurado} — ${fatura.apolice} end ${fatura.endosso}`)
+  // Cada seguradora tem formato diferente de busca no Quiver
+  let apoliceQuiver = fatura.apolice || ''
+  const segLower = (fatura.seguradora || '').toLowerCase()
+
+  if (segLower.includes('allianz') && apoliceQuiver.length > 7) {
+    // Allianz: últimos 7 dígitos (ex: 5177202623540000397 → 0000397)
+    apoliceQuiver = apoliceQuiver.slice(-7)
+    log.info(`  Allianz: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver}`)
+  } else if (segLower.includes('tokio') && apoliceQuiver.length > 6) {
+    // Tokio Marine: últimos 6 dígitos
+    apoliceQuiver = apoliceQuiver.slice(-6)
+    log.info(`  Tokio: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver}`)
+  }
+
+  log.info(`[${idx + 1}] ${fatura.segurado} — ${apoliceQuiver} end ${fatura.endosso}`)
   await page.evaluate(() => { window.__quiverErro = null })
 
   try {
@@ -213,7 +246,7 @@ async function cadastrarFatura(page, fatura, idx) {
     await page.waitForTimeout(300)
 
     await page.evaluate(`window.startFatura(
-      '${fatura.apolice}','${fatura.endosso}','${fatura.emissao}',
+      '${apoliceQuiver}','${fatura.endosso}','${fatura.emissao}',
       '${fatura.inicio_vigencia}','${fatura.fim_vigencia}',
       '${fatura.proposta_cia || ''}','${fatura.vencimento}','${fatura.premio_liquido}'
     )`)
@@ -339,3 +372,4 @@ module.exports = async function routeQuiverFaturasTransporte(req, res) {
     log.ok(`Job ${jobId} concluído: ${jobFinal.resultados.filter(r=>r.status==='OK').length}/${jobFinal.resultados.length} OK`)
   })
 }
+module.exports.getJobStatus = getJobStatus

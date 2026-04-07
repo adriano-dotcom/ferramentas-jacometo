@@ -3,7 +3,7 @@
 // Componente reutilizável de acompanhamento de job com polling automático.
 // Usado em todas as telas de ferramentas.
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 export type StatusJob = 'idle' | 'extraindo' | 'cadastrando' | 'executando' | 'baixando' | 'processando' | 'concluido' | 'erro_critico'
 
@@ -88,12 +88,7 @@ function BadgeStatus({ status, label }: { status: 'OK'|'FALHA'|'AVISO', label?: 
 }
 
 function ResultadoItem({ r, idx, abertoPadrao }: { r: Resultado; idx: number; abertoPadrao: boolean }) {
-  const [aberto, setAberto] = (typeof window !== 'undefined')
-    ? [abertoPadrao, () => {}]
-    : [false, () => {}]
-
-  // useState no client
-  const [open, setOpen] = require('react').useState(abertoPadrao)
+  const [open, setOpen] = useState(abertoPadrao)
   const cor = corDoTipo(r.tipo)
 
   return (
@@ -185,12 +180,13 @@ export function JobStatus({ job, statusLabel, onNovaExecucao, onReenviarErros, l
 
   const labels = { ...STATUS_LABEL_PADRAO, ...statusLabel }
   const emProcesso = job.status !== 'concluido' && job.status !== 'erro_critico'
-  const nOk    = job.resultados.filter(r => r.status === 'OK').length
-  const nFalha = job.resultados.filter(r => r.status === 'FALHA').length
-  const nAviso = job.resultados.filter(r => r.status === 'AVISO').length
+  const resultados = job.resultados || []
+  const nOk    = resultados.filter(r => r.status === 'OK').length
+  const nFalha = resultados.filter(r => r.status === 'FALHA').length
+  const nAviso = resultados.filter(r => r.status === 'AVISO').length
 
   const totalLiq = mostrarPremioTotal && calcularTotal
-    ? job.resultados.filter(r => r.status === 'OK').reduce((a, r) => a + calcularTotal(r), 0)
+    ? resultados.filter(r => r.status === 'OK').reduce((a, r) => a + calcularTotal(r), 0)
     : null
 
   const corCard = job.status === 'erro_critico'
@@ -201,9 +197,9 @@ export function JobStatus({ job, statusLabel, onNovaExecucao, onReenviarErros, l
         ? { bg: '#FAEEDA', border: '#BA7517', text: '#633806' }
         : { bg: 'var(--color-background-primary)', border: 'var(--color-border-tertiary)', text: 'var(--color-text-primary)' }
 
-  const falhas  = job.resultados.filter(r => r.status === 'FALHA')
-  const avisos  = job.resultados.filter(r => r.status === 'AVISO')
-  const oks     = job.resultados.filter(r => r.status === 'OK')
+  const falhas  = resultados.filter(r => r.status === 'FALHA')
+  const avisos  = resultados.filter(r => r.status === 'AVISO')
+  const oks     = resultados.filter(r => r.status === 'OK')
 
   return (
     <div style={{ marginTop: 12 }}>
@@ -230,7 +226,7 @@ export function JobStatus({ job, statusLabel, onNovaExecucao, onReenviarErros, l
         )}
 
         {/* Resumo numérico (só quando tem resultados) */}
-        {job.resultados.length > 0 && (
+        {resultados.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${mostrarPremioTotal ? 4 : 3}, minmax(0,1fr))`, gap: 8, marginTop: 8 }}>
             <div style={{ background: '#E1F5EE', borderRadius: 7, padding: '7px 8px', textAlign: 'center' }}>
               <div style={{ fontSize: 20, fontWeight: 500, color: '#1D9E75' }}>{nOk}</div>
@@ -247,7 +243,7 @@ export function JobStatus({ job, statusLabel, onNovaExecucao, onReenviarErros, l
               </div>
             )}
             <div style={{ background: 'var(--color-background-secondary)', borderRadius: 7, padding: '7px 8px', textAlign: 'center' }}>
-              <div style={{ fontSize: 18, fontWeight: 500, color: 'var(--color-text-primary)' }}>{job.resultados.length}</div>
+              <div style={{ fontSize: 18, fontWeight: 500, color: 'var(--color-text-primary)' }}>{resultados.length}</div>
               <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>Total</div>
             </div>
             {totalLiq !== null && (
@@ -263,10 +259,10 @@ export function JobStatus({ job, statusLabel, onNovaExecucao, onReenviarErros, l
       </div>
 
       {/* Lista de resultados — falhas primeiro */}
-      {job.resultados.length > 0 && (
+      {resultados.length > 0 && (
         <div>
           <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>Detalhamento ({job.resultados.length})</span>
+            <span>Detalhamento ({resultados.length})</span>
             {nFalha > 0 && (
               <span style={{ color: '#E24B4A', fontSize: 11 }}>· {nFalha} com erro — expanda para ver a ação</span>
             )}
@@ -274,15 +270,15 @@ export function JobStatus({ job, statusLabel, onNovaExecucao, onReenviarErros, l
 
           {/* Falhas primeiro (abertas) */}
           {falhas.map((r, i) => (
-            <ResultadoItem key={`f-${i}`} r={r} idx={job.resultados.indexOf(r)} abertoPadrao={true} />
+            <ResultadoItem key={`f-${i}`} r={r} idx={resultados.indexOf(r)} abertoPadrao={true} />
           ))}
           {/* Avisos */}
           {avisos.map((r, i) => (
-            <ResultadoItem key={`a-${i}`} r={r} idx={job.resultados.indexOf(r)} abertoPadrao={true} />
+            <ResultadoItem key={`a-${i}`} r={r} idx={resultados.indexOf(r)} abertoPadrao={true} />
           ))}
           {/* OK (fechados) */}
           {oks.map((r, i) => (
-            <ResultadoItem key={`ok-${i}`} r={r} idx={job.resultados.indexOf(r)} abertoPadrao={false} />
+            <ResultadoItem key={`ok-${i}`} r={r} idx={resultados.indexOf(r)} abertoPadrao={false} />
           ))}
         </div>
       )}
@@ -334,7 +330,9 @@ export function useJobPolling(jobId: string | null, onUpdate: (job: Job) => void
     pollRef.current = setInterval(async () => {
       try {
         const res  = await fetch(`/api/rpa${rota}/status/${jobId}`)
+        if (!res.ok) return
         const data = await res.json() as Job
+        if (!data || !data.status) return
         onUpdate(data)
         if (data.status === 'concluido' || data.status === 'erro_critico') parar()
       } catch {}

@@ -36,7 +36,7 @@ function atualizar(id, dados) {
   if (job) JOBS.set(id, { ...job, ...dados })
 }
 
-module.exports.getJobStatus = (req, res) => {
+function getJobStatus(req, res) {
   const job = JOBS.get(req.params.jobId)
   if (!job) return res.status(404).json({ erro: 'Job não encontrado.' })
   res.json(job)
@@ -50,7 +50,7 @@ module.exports.getJobStatus = (req, res) => {
 const DOWNLOAD_DIR = path.resolve(process.env.DOWNLOAD_DIR || './downloads')
 const SCREENSHOTS  = path.resolve('./downloads/screenshots')
 
-const RAMOS: Record<string, string> = {
+const RAMOS = {
   '116': 'Auto',
   '309': 'RC Transportes',
   '312': 'Carga',
@@ -61,7 +61,7 @@ const RAMOS: Record<string, string> = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function screenshot(page: any, nome: string) {
+async function screenshot(page, nome) {
   try {
     fs.mkdirSync(SCREENSHOTS, { recursive: true })
     const p = path.join(SCREENSHOTS, nome)
@@ -70,11 +70,11 @@ async function screenshot(page: any, nome: string) {
   } catch { return null }
 }
 
-function nomRamo(codigo: string) {
+function nomRamo(codigo) {
   return RAMOS[codigo] ? `${RAMOS[codigo]} (Ramo ${codigo})` : `Ramo ${codigo}`
 }
 
-function classificarErro(msg: string) {
+function classificarErro(msg) {
   if (!msg) return { tipo: 'DESCONHECIDO', label: 'Erro desconhecido', orientacao: 'Tente novamente.' }
   const u = msg.toUpperCase()
   if (u.includes('LOGIN') || u.includes('SENHA') || u.includes('USUARIO') || u.includes('CREDENCIAL') || u.includes('SESSÃO'))
@@ -90,7 +90,7 @@ function classificarErro(msg: string) {
 
 // ── Login ─────────────────────────────────────────────────────────────────────
 
-async function fazerLogin(page: any) {
+async function fazerLogin(page) {
   log.info('Acessando AllianzNet...')
   await page.goto(PORTAL_URL, { waitUntil: 'networkidle', timeout: 45000 })
   await page.waitForTimeout(3000)
@@ -120,118 +120,211 @@ async function fazerLogin(page: any) {
 
 // ── Navegação ─────────────────────────────────────────────────────────────────
 
-async function navegarParaInadimplentes(page: any) {
-  log.info('Navegando: GESTÃO → Financeiro → Gestão de Parcelas → Gestão de Inadimplentes')
+async function navegarParaInadimplentes(page) {
+  log.info('Home → Alertas de Negócio → INADIMPLÊNCIAS')
 
-  // GESTÃO
-  await page.locator('a:has-text("GESTÃO"), a:has-text("Gestão"), li:has-text("GESTÃO") > a').first().click()
-  await page.waitForTimeout(1500)
-
-  // Financeiro
-  await page.locator('a:has-text("Financeiro")').first().click()
-  await page.waitForTimeout(1500)
-
-  // Gestão de Parcelas
-  await page.locator('a:has-text("Gestão de Parcelas")').first().click()
+  // Na home, clica "INADIMPLÊNCIAS" (pode estar na page ou num frame)
+  const linkInad = page.locator('text=INADIMPLÊNCIAS').first()
+  await linkInad.waitFor({ timeout: 15000 })
+  await linkInad.click()
   await page.waitForLoadState('networkidle')
-  await page.waitForTimeout(2000)
+  await page.waitForTimeout(4000)
 
-  // Aba Gestão de Inadimplentes (pode ser aba ou link)
-  await page.locator('a:has-text("Gestão de Inadimplentes"), button:has-text("Gestão de Inadimplentes"), [class*="tab"]:has-text("Inadimplentes")').first().click()
-  await page.waitForLoadState('networkidle')
-  await page.waitForTimeout(2000)
+  log.ok('Tela de Parcelas Inadimplentes carregada.')
 
-  log.ok('Tela de Gestão de Inadimplentes carregada.')
+  // Após o clique, o conteúdo carrega dentro do iframe "appArea"
+  const ctx = await entrarNoFrame(page)
+  return ctx
+}
+
+// Entra no iframe "appArea" do AllianzNet (o portal renderiza tudo dentro dele)
+async function entrarNoFrame(page) {
+  const frames = page.frames()
+  log.info(`Frames detectados: ${frames.length} (${frames.map(f => f.name() || f.url().substring(0, 50)).join(', ')})`)
+
+  // Procura pelo frame "appArea" que é onde o AllianzNet renderiza o conteúdo
+  const appArea = frames.find(f => f.name() === 'appArea')
+  if (appArea) {
+    log.ok('Usando frame: appArea')
+    // Espera o frame carregar conteúdo
+    await appArea.waitForLoadState('domcontentloaded').catch(() => {})
+    await page.waitForTimeout(2000)
+    return appArea
+  }
+
+  // Fallback: tenta qualquer frame que não seja o principal
+  for (const frame of frames) {
+    if (frame === page.mainFrame()) continue
+    log.ok(`Usando frame fallback: ${frame.name() || frame.url().substring(0, 60)}`)
+    return frame
+  }
+
+  return page
 }
 
 // ── Extração ──────────────────────────────────────────────────────────────────
 
-async function pesquisarEExtrair(page: any) {
-  log.info('Pesquisando (filtros em branco = todos os registros)...')
+async function pesquisarEBaixarCSV(ctx, page, jobId) {
+  log.info('Verificando resultados (vindo de INADIMPLÊNCIAS, pode já estar carregado)...')
 
-  // Clica em Pesquisar com filtros vazios
-  await page.locator('button:has-text("Pesquisar"), input[value="Pesquisar"], button[type="submit"]').first().click()
-  await page.waitForLoadState('networkidle', { timeout: 30000 })
-  await page.waitForTimeout(3000)
+  // Resultados podem já estar carregados ao vir do link INADIMPLÊNCIAS
+  let temResultado = await ctx.locator('text=RESULTADO - TOTAIS').count()
+  if (temResultado === 0) {
+    log.info('Resultados não carregados, clicando em Pesquisar...')
+    await ctx.locator(':text-is("Pesquisar"), a:has-text("Pesquisar"), input[value*="Pesquisar"], button:has-text("Pesquisar")').first().click()
+    await page.waitForLoadState('networkidle', { timeout: 45000 })
+    await page.waitForTimeout(3000)
+  }
 
-  const parcelas: any[] = []
-  let pagina = 1
+  temResultado = await ctx.locator('text=RESULTADO - TOTAIS').count()
+  if (temResultado === 0) {
+    log.info('Nenhum resultado encontrado (sem inadimplentes).')
+    return { csvPaths: [], parcelas: [] }
+  }
 
-  while (true) {
-    log.info(`Extraindo página ${pagina}...`)
+  // Conta quantos ramos tem na tabela de TOTAIS
+  log.info('Contando ramos na tabela de RESULTADO - TOTAIS...')
 
-    const linhas = await page.locator('table tbody tr, [class*="result-row"]:not([class*="header"])').all()
-
-    for (const linha of linhas) {
-      const colunas = await linha.locator('td').all()
-      if (colunas.length < 5) continue
-
-      const vals = await Promise.all(colunas.map((c: any) => c.textContent().then((t: string) => t?.trim() || '')))
-
-      // RECIBO | PARCELA | VENCIMENTO | CPF_CNPJ | NOME_SEGURADO | RAMO | DT_FIM_COBERTURA | DT_PREV_CANCEL | PREMIO_LIQ | COMISSAO
-      const parcela = {
-        recibo:          vals[0] || '',
-        parcela:         vals[1] || '',
-        vencimento:      vals[2] || '',
-        cpf_cnpj:        vals[3] || '',
-        segurado:        vals[4] || '',
-        ramo:            vals[5] || '',
-        fim_cobertura:   vals[6] || '',
-        prev_cancel:     vals[7] || '',
-        premio_liquido:  vals[8] || '',
-        comissao:        vals[9] || '',
-      }
-
-      // Ignora linhas sem dados reais (total, separadores)
-      if (parcela.recibo && parcela.segurado) {
-        // Evita duplicata conhecida do sistema
-        const isDuplicata = parcelas.some(p => p.recibo === parcela.recibo && p.parcela === parcela.parcela)
-        if (!isDuplicata) parcelas.push(parcela)
+  async function contarLinhasRamo(frame) {
+    // Linhas de ramo na tabela TOTAIS têm formato:
+    // <tr><td>320096</td><td>116 - Acidentes Pessoais...</td><td>81</td>...
+    // Buscamos <tr> que tenha uma <td> com exatamente "320096" como texto
+    // e que tenha pelo menos 5 <td> (descarta filtros/cabeçalhos)
+    const todas = await frame.locator('tr:has(td)').all()
+    const linhas = []
+    for (const tr of todas) {
+      const tds = await tr.locator('td').all()
+      if (tds.length < 5) continue
+      // A primeira <td> deve conter o código do corretor
+      const primeiraTd = await tds[0].textContent().catch(() => '')
+      if (primeiraTd.trim() === '320096') {
+        const segundaTd = await tds[1].textContent().catch(() => '')
+        log.info(`  Ramo encontrado: ${segundaTd.trim()}`)
+        linhas.push(tr)
       }
     }
-
-    // Próxima página
-    const btnProxima = page.locator('a:has-text("Próxima"), a:has-text("Próximo"), [aria-label="Next"], .pagination-next:not(.disabled)').first()
-    const temProxima = await btnProxima.count() > 0 && await btnProxima.isEnabled()
-    if (!temProxima) break
-
-    await btnProxima.click()
-    await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(2000)
-    pagina++
-
-    if (pagina > 50) { log.warn('Limite de 50 páginas atingido.'); break }
+    return linhas
   }
 
-  log.ok(`Total extraído: ${parcelas.length} parcela(s) em ${pagina} página(s).`)
-  return parcelas
+  let linhasRamo = await contarLinhasRamo(ctx)
+  log.info(`Ramos encontrados: ${linhasRamo.length}`)
+
+  // Itera por cada ramo: clica na linha → Gerar Planilha → Voltar
+  fs.mkdirSync(DOWNLOAD_DIR, { recursive: true })
+  const hoje = new Date().toISOString().substring(0, 10).replace(/-/g, '_')
+  const csvPaths = []
+  const todasParcelas = []
+
+  for (let idx = 0; idx < linhasRamo.length; idx++) {
+    // Re-localiza após cada "Voltar" (DOM muda)
+    const ctxAtualizar = await entrarNoFrame(page)
+    linhasRamo = await contarLinhasRamo(ctxAtualizar)
+    if (idx >= linhasRamo.length) break
+
+    const textoLinha = await linhasRamo[idx].textContent().catch(() => '')
+    const nomeRamo = textoLinha.replace(/\s+/g, ' ').trim().substring(0, 80)
+    log.info(`[${idx + 1}/${linhasRamo.length}] Abrindo ramo: ${nomeRamo}`)
+
+    // Clica na linha para entrar em POR PARCELA
+    await linhasRamo[idx].click()
+    await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(3000)
+
+    // Atualiza o contexto (pode ter mudado de frame)
+    const ctxAtual = await entrarNoFrame(page)
+
+    // Procura "Gerar Planilha"
+    const btnGerar = ctxAtual.locator('a:has-text("Gerar Planilha"), input[value*="Gerar Planilha"], :text-is("Gerar Planilha")').first()
+    const temBtn = await btnGerar.count()
+
+    if (temBtn > 0) {
+      log.info(`  → Gerar Planilha encontrado, baixando...`)
+      try {
+        const [download] = await Promise.all([
+          page.waitForEvent('download', { timeout: 30000 }),
+          btnGerar.click(),
+        ])
+        const ramoNum = textoLinha.match(/\d{3,4}/) ? textoLinha.match(/\d{3,4}/)[0] : idx
+        const dest = path.join(DOWNLOAD_DIR, `ALLIANZ_INADIMPLENTES_${hoje}_ramo${ramoNum}.csv`)
+        await download.saveAs(dest)
+        csvPaths.push(dest)
+        log.ok(`  → CSV baixado: ${dest}`)
+
+        // Parseia o CSV
+        const parcelas = parsearCSV(dest)
+        todasParcelas.push(...parcelas)
+        log.ok(`  → ${parcelas.length} parcela(s) neste ramo`)
+      } catch (e) {
+        log.warn(`  → Erro ao baixar CSV do ramo: ${e.message}`)
+      }
+    } else {
+      log.warn(`  → "Gerar Planilha" não encontrado neste ramo`)
+    }
+
+    // Atualiza progresso
+    atualizar(jobId, { progresso: 3, total: 5 })
+
+    // Clica em "Voltar" para retornar à tabela de TOTAIS
+    const btnVoltar = ctxAtual.locator('a:has-text("Voltar"), input[value*="Voltar"], :text-is("Voltar")').first()
+    if (await btnVoltar.count() > 0) {
+      await btnVoltar.click()
+      await page.waitForLoadState('networkidle')
+      await page.waitForTimeout(3000)
+    } else {
+      log.warn('  → Botão "Voltar" não encontrado, tentando navegar de volta...')
+      await page.goBack()
+      await page.waitForLoadState('networkidle')
+      await page.waitForTimeout(3000)
+    }
+  }
+
+  log.ok(`Total: ${csvPaths.length} arquivo(s) CSV, ${todasParcelas.length} parcela(s).`)
+  return { csvPaths, parcelas: todasParcelas }
 }
 
-async function tentarExportar(page: any) {
-  try {
-    const btnExp = page.locator('button:has-text("Exportar"), a:has-text("Exportar"), a:has-text("Download"), a:has-text("CSV"), a:has-text("Excel")').first()
-    if (await btnExp.count() === 0) return null
+function parsearCSV(csvPath) {
+  const conteudo = fs.readFileSync(csvPath, 'latin1')
+  const linhas = conteudo.split('\n')
 
-    const [download] = await Promise.all([
-      page.waitForEvent('download', { timeout: 15000 }),
-      btnExp.click(),
-    ])
+  // Encontra a linha de cabeçalho (começa com RECIBO;)
+  const idxCab = linhas.findIndex(l => l.startsWith('RECIBO;'))
+  if (idxCab < 0) return []
 
-    fs.mkdirSync(DOWNLOAD_DIR, { recursive: true })
-    const hoje = new Date().toISOString().substring(0, 10).replace(/-/g, '_')
-    const dest = path.join(DOWNLOAD_DIR, `ALLIANZ_INADIMPLENTES_${hoje}_export.csv`)
-    await download.saveAs(dest)
-    log.ok(`Exportação do portal: ${dest}`)
-    return dest
-  } catch (e: any) {
-    log.warn(`Exportação falhou: ${e.message}`)
-    return null
+  const cabs = linhas[idxCab].split(';').map(c => c.trim())
+  const parcelas = []
+
+  for (let i = idxCab + 1; i < linhas.length; i++) {
+    const l = linhas[i].trim()
+    if (!l) continue
+    const cols = l.split(';').map(c => c.replace(/^="?|"?$/g, '').trim())
+    if (cols.length < 5) continue
+
+    const obj = {}
+    cabs.forEach((cab, idx) => { obj[cab] = cols[idx] || '' })
+
+    parcelas.push({
+      recibo:       obj['RECIBO'] || '',
+      ramo:         obj['RAMO'] || '',
+      ramo_br:      obj['RAMO_BR'] || '',
+      vencimento:   obj['VENCIMENTO'] || '',
+      apolice:      obj['APOLICE'] || '',
+      parcela:      obj['PARCELA'] || '',
+      cpf_cnpj:     obj['CPF_CNPJ'] || '',
+      segurado:     obj['SEGURADO'] || '',
+      premio:       obj['PREMIO_TOTAL'] || '',
+      comissao:     obj['COMISSAO'] || '',
+      prev_cancel:  obj['DT_PREV_CANC'] || '',
+      fim_cobert:   obj['DT_FIM_COBERT'] || '',
+      adesao:       obj['NR_ADESAO'] || '',
+    })
   }
+
+  return parcelas
 }
 
 // ── CSV manual ────────────────────────────────────────────────────────────────
 
-function gerarCSV(parcelas: any[]) {
+function gerarCSV(parcelas) {
   fs.mkdirSync(DOWNLOAD_DIR, { recursive: true })
   const hoje = new Date().toISOString().substring(0, 10).replace(/-/g, '_')
   const dest = path.join(DOWNLOAD_DIR, `ALLIANZ_INADIMPLENTES_${hoje}.csv`)
@@ -250,7 +343,9 @@ function gerarCSV(parcelas: any[]) {
 
 // ── Email ─────────────────────────────────────────────────────────────────────
 
-async function enviarEmail(parcelas: any[], csvPath: string | null, jobId: string) {
+async function enviarEmail(parcelas, csvPaths, jobId) {
+  // csvPaths pode ser string (legado) ou array de caminhos
+  const anexos = Array.isArray(csvPaths) ? csvPaths : (csvPaths ? [csvPaths] : [])
   const hoje = new Date().toLocaleDateString('pt-BR')
 
   const totalPremio = parcelas.reduce((a, p) => a + (parseFloat((p.premio_liquido||'0').replace('.','').replace(',','.')) || 0), 0)
@@ -258,7 +353,7 @@ async function enviarEmail(parcelas: any[], csvPath: string | null, jobId: strin
   const seguradosUnicos = new Set(parcelas.map(p => p.cpf_cnpj || p.segurado)).size
 
   // Agrupa por ramo
-  const porRamo: Record<string, any[]> = {}
+  const porRamo = {}
   for (const p of parcelas) {
     const r = p.ramo || 'Sem ramo'
     if (!porRamo[r]) porRamo[r] = []
@@ -271,7 +366,7 @@ async function enviarEmail(parcelas: any[], csvPath: string | null, jobId: strin
   }).join('\n')
 
   // Agrupa por segurado
-  const porSegurado: Record<string, any[]> = {}
+  const porSegurado = {}
   for (const p of parcelas) {
     const k = `${p.segurado}__${p.cpf_cnpj}`
     if (!porSegurado[k]) porSegurado[k] = []
@@ -291,30 +386,34 @@ async function enviarEmail(parcelas: any[], csvPath: string | null, jobId: strin
 
   const corpo = semResultados
     ? `Prezado Adriano,\n\nNenhuma parcela em atraso encontrada no AllianzNet em ${hoje}.\n\nCorretor: JACOMETO CORRETORA DE SEGUROS LTDA\n\nAtenciosamente,\nSistema Ferramentas Jacometo`
-    : `RELATÓRIO DE PARCELAS EM ATRASO - ALLIANZ\nData: ${hoje}\nCorretor: JACOMETO CORRETORA DE SEGUROS LTDA\nJob: ${jobId}\n\n${'='.repeat(60)}\nRESUMO GERAL\n${'='.repeat(60)}\nTotal de parcelas inadimplentes: ${parcelas.length}\nTotal de segurados distintos: ${seguradosUnicos}\nPrêmio líquido total em atraso: R$ ${totalPremio.toLocaleString('pt-BR',{minimumFractionDigits:2})}\nComissão total em risco: R$ ${totalComissao.toLocaleString('pt-BR',{minimumFractionDigits:2})}\n\nPOR RAMO:\n${resumoRamos}\n\n${'='.repeat(60)}\nDETALHAMENTO POR SEGURADO\n${'='.repeat(60)}\n\n${detalhes}\n\n${csvPath ? 'Arquivo CSV em anexo.' : ''}\n\nAtenciosamente,\nSistema Ferramentas Jacometo`
+    : `RELATÓRIO DE PARCELAS EM ATRASO - ALLIANZ\nData: ${hoje}\nCorretor: JACOMETO CORRETORA DE SEGUROS LTDA\nJob: ${jobId}\n\n${'='.repeat(60)}\nRESUMO GERAL\n${'='.repeat(60)}\nTotal de parcelas inadimplentes: ${parcelas.length}\nTotal de segurados distintos: ${seguradosUnicos}\nPrêmio líquido total em atraso: R$ ${totalPremio.toLocaleString('pt-BR',{minimumFractionDigits:2})}\nComissão total em risco: R$ ${totalComissao.toLocaleString('pt-BR',{minimumFractionDigits:2})}\n\nPOR RAMO:\n${resumoRamos}\n\n${'='.repeat(60)}\nDETALHAMENTO POR SEGURADO\n${'='.repeat(60)}\n\n${detalhes}\n\n${anexos.length > 0 ? `${anexos.length} arquivo(s) CSV em anexo.` : ''}\n\nAtenciosamente,\nSistema Ferramentas Jacometo`
 
   await email.enviar({
     assunto: semResultados
       ? `Allianz — Sem inadimplentes em ${hoje}`
       : `[AllianzNet] Inadimplentes — ${parcelas.length} parcela(s) — ${hoje}`,
     corpo,
-    anexo: csvPath || undefined,
+    anexo: anexos.length > 0 ? anexos : undefined,
   })
   log.ok('Email enviado.')
 }
 
 // ── Handler principal ─────────────────────────────────────────────────────────
 
-module.exports = async function routeAllianzInadimplentes(req: any, res: any) {
+module.exports = async function routeAllianzInadimplentes(req, res) {
+  const corretora = req.body?.corretora || 'jacometo'
+  const credKey = corretora === 'giacomet' ? 'giacomet_allianz' : 'allianz'
+  const nomeCorretora = corretora === 'giacomet' ? 'GIACOMET' : 'JACOMETO'
+
   const jobId = criarJob()
-  log.info(`Job Allianz inadimplentes — ${jobId}`)
-  res.json({ ok: true, jobId, mensagem: 'Iniciando extração de inadimplentes da Allianz.' })
+  log.info(`Job Allianz inadimplentes (${nomeCorretora}) — ${jobId}`)
+  res.json({ ok: true, jobId, mensagem: `Iniciando extração de inadimplentes da Allianz (${nomeCorretora}).` })
 
   setImmediate(async () => {
     const _inicio = new Date()
-    await db.jobIniciado(jobId, 'allianz')
-    // Recarrega credenciais a cada execução (para pegar atualizações do painel)
-    const _creds = getCred('allianz')
+    await db.jobIniciado(jobId, credKey)
+    // Recarrega credenciais a cada execução
+    const _creds = getCred(credKey)
     PORTAL_URL = _creds.url || PORTAL_URL
     LOGIN_USER = _creds.usuario || LOGIN_USER
     LOGIN_SENHA = _creds.senha || LOGIN_SENHA
@@ -325,43 +424,39 @@ module.exports = async function routeAllianzInadimplentes(req: any, res: any) {
       await fazerLogin(page)
       atualizar(jobId, { progresso: 1 })
 
-      // 2. Navegação
-      await navegarParaInadimplentes(page)
+      // 2. Navegação até INADIMPLÊNCIAS (retorna o frame correto)
+      const ctx = await navegarParaInadimplentes(page)
       atualizar(jobId, { progresso: 2 })
 
-      // 3. Extração (todas as páginas)
-      const parcelas = await pesquisarEExtrair(page)
-      atualizar(jobId, { progresso: 3 })
-
-      // 4. Exporta CSV (portal ou manual)
-      let csvPath = await tentarExportar(page)
-      if (!csvPath && parcelas.length > 0) csvPath = gerarCSV(parcelas)
+      // 3. Para cada ramo: clicar → Gerar Planilha → Voltar
+      const { csvPaths, parcelas } = await pesquisarEBaixarCSV(ctx, page, jobId)
       atualizar(jobId, { progresso: 4 })
 
       // Monta resultados para o JobStatus
-      const resultados = parcelas.length === 0
+      const resultados = (!parcelas || parcelas.length === 0)
         ? [{ nome: 'Nenhuma parcela em atraso encontrada', status: 'OK', label: null, orientacao: null, erro: null, tipo: null }]
         : parcelas.map(p => ({
             nome: p.segurado,
-            sub:  `${nomRamo(p.ramo)} · Recibo ${p.recibo} | Parcela ${p.parcela} | R$ ${p.premio_liquido} | Venc: ${p.vencimento} | Cancel: ${p.prev_cancel}`,
-            status: 'OK' as const,
+            sub:  `${nomRamo(p.ramo)} · Recibo ${p.recibo} | Apólice ${p.apolice} | R$ ${p.premio} | Venc: ${p.vencimento} | Cancel: ${p.prev_cancel}`,
+            status: 'OK',
             label: null, orientacao: null, erro: null, tipo: null,
           }))
 
       atualizar(jobId, { status: 'concluido', progresso: 5, resultados })
-      await db.jobConcluido(jobId, 'allianz', { resultados, csvPath: csvPath || null }, _inicio)
+      const csvPath = csvPaths.length > 0 ? csvPaths[0] : null
+      await db.jobConcluido(jobId, 'allianz', { resultados, csvPath }, _inicio)
 
-      // 5. Email
-      await enviarEmail(parcelas, csvPath, jobId)
-      log.ok(`Job ${jobId} concluído: ${parcelas.length} parcela(s).`)
+      // 4. Email com todos os CSVs anexados
+      await enviarEmail(parcelas || [], csvPaths, jobId)
+      log.ok(`Job ${jobId} concluído: ${(parcelas || []).length} parcela(s), ${csvPaths.length} arquivo(s).`)
 
-    } catch (e: any) {
+    } catch (e) {
       log.error(`Erro crítico [${jobId}]: ${e.message}`)
       const ss = await screenshot(page, `erro_allianz_${Date.now()}.png`)
       const cl = classificarErro(e.message)
       atualizar(jobId, {
         status: 'erro_critico', erro: e.message,
-        resultados: [{ nome: 'Allianz — Extração falhou', sub: cl.label, status: 'FALHA' as const, label: cl.label, orientacao: cl.orientacao, erro: e.message, tipo: cl.tipo, screenshotPath: ss }],
+        resultados: [{ nome: 'Allianz — Extração falhou', sub: cl.label, status: 'FALHA', label: cl.label, orientacao: cl.orientacao, erro: e.message, tipo: cl.tipo, screenshotPath: ss }],
       })
       await db.jobErro(jobId, 'allianz', e.message, _inicio)
       await email.enviar({
@@ -373,3 +468,5 @@ module.exports = async function routeAllianzInadimplentes(req: any, res: any) {
     }
   })
 }
+
+module.exports.getJobStatus = getJobStatus

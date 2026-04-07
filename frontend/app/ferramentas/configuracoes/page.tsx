@@ -18,6 +18,9 @@ const ICONE: Record<string, string> = {
   sompo: '🟦', akad: '🟩', yelum: '🟡', mitsui: '🔶',
   essor: '🟪', metlife: '⚪', unimed_seguros: '🔴', unimed_boletos: '🔴',
   quiver: '⚙️', plano_hospitalar: '🏥',
+  giacomet_yelum: '🟡', giacomet_mitsui: '🔶', giacomet_allianz: '🔵',
+  giacomet_unimed: '🔴', giacomet_akad: '🟩', giacomet_aig: '⬜',
+  giacomet_berkley: '🟫', giacomet_metlife: '⚪',
 }
 
 function CampoSenha({ valor, onChange }: { valor: string; onChange: (v: string) => void }) {

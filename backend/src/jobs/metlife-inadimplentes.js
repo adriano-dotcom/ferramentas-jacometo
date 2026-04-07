@@ -25,7 +25,7 @@ function criarJob() {
   return id
 }
 function atualizar(id, dados) { const j=JOBS.get(id); if(j) JOBS.set(id,{...j,...dados}) }
-module.exports.getJobStatus = (req, res) => {
+function getJobStatus(req, res) {
   const job = JOBS.get(req.params.jobId)
   if (!job) return res.status(404).json({ erro:'Job não encontrado.' })
   res.json(job)
@@ -50,15 +50,19 @@ function classErr(msg) {
 }
 
 module.exports = async function routeMetlifeInadimplentes(req, res) {
+  const corretora = req.body?.corretora || 'jacometo'
+  const credKey = corretora === 'giacomet' ? 'giacomet_metlife' : 'metlife'
+  const nomeCorretora = corretora === 'giacomet' ? 'GIACOMET' : 'JACOMETO'
+
   const jobId = criarJob()
-  log.info(`Job MetLife inadimplentes — ${jobId}`)
+  log.info(`Job MetLife inadimplentes [${nomeCorretora}] — ${jobId}`)
   res.json({ ok:true, jobId, mensagem:'Iniciando extração de inadimplentes da MetLife.' })
 
   setImmediate(async () => {
     const _inicio = new Date()
-    await db.jobIniciado(jobId, 'metlife')
+    await db.jobIniciado(jobId, credKey)
     // Recarrega credenciais a cada execução (para pegar atualizações do painel)
-    const _creds = getCred('metlife')
+    const _creds = getCred(credKey)
     LOGIN_URL = _creds.url || LOGIN_URL
     LOGIN_USER = _creds.usuario || LOGIN_USER
     LOGIN_SENHA = _creds.senha || LOGIN_SENHA
@@ -150,3 +154,4 @@ module.exports = async function routeMetlifeInadimplentes(req, res) {
     } finally { await fecharBrowser(browser) }
   })
 }
+module.exports.getJobStatus = getJobStatus

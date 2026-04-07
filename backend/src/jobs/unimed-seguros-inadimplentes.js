@@ -29,7 +29,7 @@ function criarJob() {
   return id
 }
 function atualizar(id, dados) { const j=JOBS.get(id); if(j) JOBS.set(id,{...j,...dados}) }
-module.exports.getJobStatus = (req, res) => {
+function getJobStatus(req, res) {
   const job = JOBS.get(req.params.jobId)
   if (!job) return res.status(404).json({ erro:'Job não encontrado.' })
   res.json(job)
@@ -118,7 +118,7 @@ async function extrairCategoria(page, categoria) {
     if (await btnHome.count()>0) { await btnHome.click(); await page.waitForLoadState('networkidle'); await page.waitForTimeout(2000) }
 
     // Clica no card da categoria
-    const seletores: Record<string, string> = {
+    const seletores = {
       'Vida': '.card:has-text("Vida"), a:has-text("Vida"), [class*="card"]:has-text("Vida")',
       'Ramos Elementares': '.card:has-text("Ramos"), a:has-text("Ramos"), [class*="card"]:has-text("Ramos")',
       'Previdência': '.card:has-text("Previdência"), a:has-text("Previdência"), [class*="card"]:has-text("Previd")',
@@ -165,7 +165,7 @@ async function extrairCategoria(page, categoria) {
       for (const linha of linhas) {
         const cols = await linha.locator('td').all()
         if (cols.length<4) continue
-        const v = await Promise.all(cols.map((c:any)=>c.textContent().then((t:string)=>t?.trim()||'')))
+        const v = await Promise.all(cols.map((c)=>c.textContent().then((t)=>t?.trim()||'')))
         // Colunas: Produto | Apólice | Cliente | CPF/CNPJ | Parcela | Valor | Vencimento | Status | Forma Pgto
         if (v[0]&&v[1]) parcelas.push({
           categoria,
@@ -181,7 +181,7 @@ async function extrairCategoria(page, categoria) {
     }
 
     log.ok(`${categoria}: ${parcelas.length} registro(s).`)
-  } catch (e: any) {
+  } catch (e) {
     log.warn(`Erro ao extrair ${categoria}: ${e.message}`)
   }
 
@@ -190,7 +190,7 @@ async function extrairCategoria(page, categoria) {
 
 // ── CSV ───────────────────────────────────────────────────────────────────────
 
-function gerarCSV(parcelas: any[]) {
+function gerarCSV(parcelas) {
   if (!parcelas.length) return null
   fs.mkdirSync(DOWNLOAD_DIR, {recursive:true})
   const dest = path.join(DOWNLOAD_DIR, `UNIMED_SEGUROS_INADIMPLENTES_${new Date().toISOString().substring(0,10).replace(/-/g,'_')}.csv`)
@@ -203,16 +203,20 @@ function gerarCSV(parcelas: any[]) {
 
 // ── Handler principal ─────────────────────────────────────────────────────────
 
-module.exports = async function routeUnimedSegurosInadimplentes(req: any, res: any) {
+module.exports = async function routeUnimedSegurosInadimplentes(req, res) {
+  const corretora = req.body?.corretora || 'jacometo'
+  const credKey = corretora === 'giacomet' ? 'giacomet_unimed' : 'unimed_seguros'
+  const nomeCorretora = corretora === 'giacomet' ? 'GIACOMET' : 'JACOMETO'
+
   const jobId = criarJob()
-  log.info(`Job Unimed Seguros inadimplentes — ${jobId}`)
+  log.info(`Job Unimed Seguros inadimplentes [${nomeCorretora}] — ${jobId}`)
   res.json({ ok:true, jobId, mensagem:'Iniciando extração de inadimplentes da Unimed Seguros (Vida, Ramos Elementares, Previdência).' })
 
   setImmediate(async () => {
     const _inicio = new Date()
-    await db.jobIniciado(jobId, 'unimed_seguros')
+    await db.jobIniciado(jobId, credKey)
     // Recarrega credenciais a cada execução (para pegar atualizações do painel)
-    const _creds = getCred('unimed_seguros')
+    const _creds = getCred(credKey)
     LOGIN_CPF  = _creds.cpf || LOGIN_CPF
     PORTAL_URL = _creds.url || PORTAL_URL
     LOGIN_SENHA = _creds.senha || LOGIN_SENHA
@@ -222,8 +226,8 @@ module.exports = async function routeUnimedSegurosInadimplentes(req: any, res: a
       await fazerLogin(page)
       atualizar(jobId, { progresso:1 })
 
-      const todasParcelas: any[] = []
-      const resultadosCat: any[] = []
+      const todasParcelas = []
+      const resultadosCat = []
 
       for (let i=0; i<CATEGORIAS.length; i++) {
         const cat = CATEGORIAS[i]
@@ -234,7 +238,7 @@ module.exports = async function routeUnimedSegurosInadimplentes(req: any, res: a
           sub: parcelas.length > 0
             ? parcelas.slice(0,3).map(p=>`${p.cliente} | R$ ${p.valor} | Venc: ${p.vencimento}`).join(' · ')
             : 'Nenhuma inadimplência encontrada',
-          status: 'OK' as const,
+          status: 'OK',
           label: null, orientacao: null, erro: null, tipo: null,
         })
         atualizar(jobId, { progresso: i+2, resultados: [...resultadosCat] })
@@ -267,13 +271,14 @@ module.exports = async function routeUnimedSegurosInadimplentes(req: any, res: a
       await db.jobConcluido(jobId, 'unimed_seguros', { resultados, csvPath: csvPath || null }, _inicio)
       log.ok(`Job ${jobId} concluído: ${todasParcelas.length} parcela(s).`)
 
-    } catch (e: any) {
+    } catch (e) {
       log.error(`Erro crítico [${jobId}]: ${e.message}`)
       const s = await ss(page,`erro_unimed_seg_${Date.now()}.png`)
       const cl = classErr(e.message)
-      atualizar(jobId, { status:'erro_critico', erro:e.message, resultados:[{ nome:'Unimed Seguros — Extração falhou', sub:cl.label, status:'FALHA' as const, label:cl.label, orientacao:cl.orientacao, erro:e.message, tipo:cl.tipo, screenshotPath:s }] })
+      atualizar(jobId, { status:'erro_critico', erro:e.message, resultados:[{ nome:'Unimed Seguros — Extração falhou', sub:cl.label, status:'FALHA', label:cl.label, orientacao:cl.orientacao, erro:e.message, tipo:cl.tipo, screenshotPath:s }] })
       await db.jobErro(jobId, 'unimed_seguros', e.message, _inicio)
       await email.enviar({ assunto:'❌ Unimed Seguros inadimplentes — Erro', corpo:`Job: ${jobId}\nErro: ${e.message}\nAção: ${cl.orientacao}` })
     } finally { await fecharBrowser(browser) }
   })
 }
+module.exports.getJobStatus = getJobStatus
