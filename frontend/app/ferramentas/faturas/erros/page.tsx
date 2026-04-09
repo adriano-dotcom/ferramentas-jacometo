@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
@@ -198,7 +198,7 @@ function FaturaCard({ fatura, onCorrigido }: { fatura: FaturaErro; onCorrigido: 
   )
 }
 
-export default function FaturasErrosPage() {
+function FaturasErrosContent() {
   const searchParams = useSearchParams()
   const [faturas, setFaturas] = useState<FaturaErro[]>([])
   const [loading, setLoading] = useState(true)
@@ -260,5 +260,13 @@ export default function FaturasErrosPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function FaturasErrosPage() {
+  return (
+    <Suspense fallback={<div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-3)' }}>Carregando...</div>}>
+      <FaturasErrosContent />
+    </Suspense>
   )
 }
