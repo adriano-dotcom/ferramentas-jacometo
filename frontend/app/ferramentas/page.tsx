@@ -213,6 +213,15 @@ const FERRAMENTAS = [
     status: 'ativo',
   },
   {
+    slug: 'faturas',
+    nome: '📑 Faturas Transporte',
+    descricao: 'Log completo de faturas processadas — sucesso, erros e correção com reprocessamento',
+    responsavel: 'Giovana',
+    seguradora: 'Todas',
+    tipo: 'automatico',
+    status: 'ativo',
+  },
+  {
     slug: 'historico',
     nome: '📊 Histórico',
     descricao: 'Todas as execuções — status, duração, erros e valor total por seguradora',

@@ -11,6 +11,32 @@ import { supabase } from '../lib/supabase.js';
 const router = Router();
 
 /**
+ * GET /api/faturas/log
+ * Lista todas as faturas processadas (sucesso + erro).
+ */
+router.get('/log', async (req, res) => {
+  try {
+    const { limit = 100, status, seguradora } = req.query;
+
+    let query = supabase
+      .from('faturas_log')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(Number(limit));
+
+    if (status) query = query.eq('status', status);
+    if (seguradora) query = query.eq('seguradora', seguradora);
+
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ ok: false, erro: error.message });
+
+    res.json({ ok: true, total: data.length, faturas: data });
+  } catch (err) {
+    res.status(500).json({ ok: false, erro: err.message });
+  }
+});
+
+/**
  * GET /api/faturas/erros
  * Lista faturas com status 'erro' ou 'revisao', mais recentes primeiro.
  */
