@@ -8,6 +8,7 @@ import { initCrons } from './crons.js';
 import { MODELS } from './router.js';
 import { falarNoTelegram, transcreverAudioTelegram, statusElevenLabs } from './voice.js';
 import { pesquisarEResumir, statusWebSearch } from './search.js';
+import { iniciarWatcher, getStatus as getWatcherStatus } from './jobs/drive-watcher.js';
 
 dotenv.config();
 
@@ -39,6 +40,9 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 console.log('🤖 Jarvis online — aguardando mensagens...');
 console.log(`📊 Modelos: Opus=${MODELS.OPUS} | Sonnet=${MODELS.SONNET} | Haiku=${MODELS.HAIKU}`);
 console.log(`🔀 Modo: ${useManagedAgents ? '☁️ Managed Agents' : '🏠 Local (claude.js)'}`);
+
+// Inicia Drive Watcher (monitora faturas)
+iniciarWatcher();
 
 // Verifica se usuário é autorizado
 function isAuthorized(userId) {
@@ -102,6 +106,21 @@ bot.onText(/\/status/, async (msg) => {
   `.trim();
 
   bot.sendMessage(msg.chat.id, status, { parse_mode: 'Markdown' });
+});
+
+bot.onText(/\/watcher/, async (msg) => {
+  if (!isAuthorized(msg.from.id)) return;
+  const w = getWatcherStatus();
+  const txt = `
+👁️ *Drive Watcher*
+
+• Status: ${w.ativo ? '🟢 Ativo' : '🔴 Parado'}
+• Última verificação: ${w.ultimaVerificacao || 'nunca'}
+• Processados: ${w.totalProcessados}
+• Erros: ${w.totalErros}
+• Último arquivo: ${w.ultimoArquivo || '—'}
+  `.trim();
+  bot.sendMessage(msg.chat.id, txt, { parse_mode: 'Markdown' });
 });
 
 bot.onText(/\/custo/, (msg) => {

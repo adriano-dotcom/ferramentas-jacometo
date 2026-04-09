@@ -14,12 +14,39 @@ dotenv.config();
 // Custom tool handlers (lazy imported)
 const CUSTOM_TOOL_HANDLERS = {
   cadastrar_fatura_quiver: async (input) => {
-    const { cadastrarFatura } = await import('./tools/quiver-tool.js');
+    const { cadastrarFatura, cadastrarFaturas } = await import('./tools/quiver-tool.js');
+
+    // Se veio com fileIds do Drive, baixa os PDFs e envia
+    if (input.fileIds && Array.isArray(input.fileIds)) {
+      const { baixarPDF } = await import('./tools/drive-tool.js');
+      const pdfs = [];
+      for (const fileId of input.fileIds) {
+        const dl = await baixarPDF(fileId);
+        if (dl.ok) pdfs.push({ buffer: dl.buffer, nome: dl.nome });
+      }
+      if (pdfs.length === 0) return { sucesso: false, mensagem: 'Nenhum PDF baixado do Drive.' };
+      return cadastrarFaturas(pdfs);
+    }
+
+    // Se veio com buffer direto (de outra tool)
+    if (input.buffer) {
+      return cadastrarFatura({ buffer: Buffer.from(input.buffer, 'base64'), nome: input.nome });
+    }
+
+    // Fallback: tenta com dados estruturados
     return cadastrarFatura(input);
   },
+
   buscar_fatura_drive: async (input) => {
     const { listarFaturasDrive, baixarPDF } = await import('./tools/drive-tool.js');
-    if (input.fileId) return baixarPDF(input.fileId);
+    if (input.fileId) {
+      const dl = await baixarPDF(input.fileId);
+      if (dl.ok) {
+        // Retorna base64 para o agente poder repassar ao cadastrar_fatura_quiver
+        return { ok: true, nome: dl.nome, base64: dl.buffer.toString('base64'), tamanho: `${Math.round(dl.buffer.length / 1024)}KB` };
+      }
+      return dl;
+    }
     return listarFaturasDrive(input.seguradora, input.mes);
   },
 };

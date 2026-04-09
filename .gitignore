@@ -30,6 +30,7 @@ downloads/screenshots/
 
 # ── Jarvis OS ────────────────────────────────────────────────────
 memory/jarvis.db
+token.json
 ~/.jarvis/
 
 # ── Backup ───────────────────────────────────────────────────────
