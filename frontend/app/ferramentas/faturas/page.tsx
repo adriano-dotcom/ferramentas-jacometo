@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import { supabase } from '../../../lib/supabase'
 
 interface Fatura {
   id: number
@@ -43,10 +44,16 @@ export default function FaturasPage() {
 
   const carregar = useCallback(async () => {
     try {
-      const params = filtroStatus !== 'Todos' ? `?status=${filtroStatus.toLowerCase()}` : ''
-      const res = await fetch(`/api/rpa/faturas/log${params}`)
-      const data = await res.json()
-      if (data.ok) setFaturas(data.faturas)
+      let query = supabase
+        .from('faturas_log')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100)
+
+      if (filtroStatus !== 'Todos') query = query.eq('status', filtroStatus.toLowerCase())
+
+      const { data } = await query
+      if (data) setFaturas(data as Fatura[])
     } catch { /* silencia */ }
     setLoading(false)
   }, [filtroStatus])

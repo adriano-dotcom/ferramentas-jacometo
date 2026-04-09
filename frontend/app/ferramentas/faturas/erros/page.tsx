@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { supabase } from '../../../../lib/supabase'
 
 interface FaturaErro {
   id: number
@@ -67,14 +68,28 @@ function FaturaCard({ fatura, onCorrigido }: { fatura: FaturaErro; onCorrigido: 
     setEnviando(true)
     setResultado(null)
     try {
-      const res = await fetch(`/api/rpa/faturas/${fatura.id}/corrigir`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dados_corrigidos: form }),
-      })
-      const data = await res.json()
-      setResultado({ ok: data.ok && data.status === 'sucesso', msg: data.mensagem || data.erro })
-      if (data.ok) setTimeout(onCorrigido, 2000)
+      // 1. Salva dados corrigidos no Supabase
+      const { error } = await supabase.from('faturas_log').update({
+        dados_corrigidos: form,
+        status: 'revisao',
+        updated_at: new Date().toISOString(),
+      }).eq('id', fatura.id)
+
+      if (error) throw new Error(error.message)
+
+      // 2. Salva caso de erro para treinamento
+      if (fatura.dados_extraidos) {
+        await supabase.from('regras_seguradora').upsert({
+          seguradora: fatura.seguradora,
+          tipo: 'caso_erro',
+          dados_errados: fatura.dados_extraidos,
+          dados_corretos: form,
+          descricao: `Correção manual: ${fatura.erro_mensagem || 'sem erro'} — ${fatura.arquivo}`,
+        }, { onConflict: 'seguradora,tipo,descricao' })
+      }
+
+      setResultado({ ok: true, msg: 'Dados corrigidos salvos. O extrator vai aprender com esta correção.' })
+      setTimeout(onCorrigido, 2000)
     } catch (e: any) {
       setResultado({ ok: false, msg: e.message })
     }
@@ -83,11 +98,10 @@ function FaturaCard({ fatura, onCorrigido }: { fatura: FaturaErro; onCorrigido: 
 
   async function ignorar() {
     try {
-      await fetch(`/api/rpa/faturas/${fatura.id}/corrigir`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dados_corrigidos: { ...form, _ignorado: true } }),
-      })
+      await supabase.from('faturas_log').update({
+        status: 'ignorado',
+        updated_at: new Date().toISOString(),
+      }).eq('id', fatura.id)
       onCorrigido()
     } catch { /* silencia */ }
   }
@@ -191,9 +205,13 @@ export default function FaturasErrosPage() {
 
   async function carregar() {
     try {
-      const res = await fetch('/api/rpa/faturas/erros')
-      const data = await res.json()
-      if (data.ok) setFaturas(data.faturas)
+      const { data } = await supabase
+        .from('faturas_log')
+        .select('*')
+        .in('status', ['erro', 'revisao'])
+        .order('created_at', { ascending: false })
+        .limit(50)
+      if (data) setFaturas(data as FaturaErro[])
     } catch { /* silencia */ }
     setLoading(false)
   }
