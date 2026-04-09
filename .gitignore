@@ -3,6 +3,7 @@
 .env.local
 .env.production
 credentials.json
+credentials/
 config/credenciais.json
 config/*.json
 downloads/
@@ -26,6 +27,10 @@ Thumbs.db
 test-results/
 playwright-report/
 downloads/screenshots/
+
+# ── Jarvis OS ────────────────────────────────────────────────────
+memory/jarvis.db
+~/.jarvis/
 
 # ── Backup ───────────────────────────────────────────────────────
 *.bak

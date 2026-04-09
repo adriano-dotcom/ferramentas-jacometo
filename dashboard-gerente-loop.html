@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS — Gerente Jacometo & Orbe Pet</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:     #050709;
+  --s1:     #0a0f14;
+  --s2:     #0f1720;
+  --border: #182535;
+  --b2:     #1f3040;
+  --text:   #cce0ee;
+  --muted:  #3d6070;
+  --dim:    #1a2a38;
+
+  --cyan:   #00d4ff;
+  --green:  #00ff9d;
+  --orange: #ff9500;
+  --red:    #ff3b30;
+  --gold:   #ffd60a;
+  --purple: #bf5af2;
+  --blue:   #0a84ff;
+
+  --jacometo: #0a84ff;
+  --orbe:     #ff6b9d;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:'Syne',sans-serif; min-height:100vh; }
+
+/* ── HEADER ── */
+header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 28px; border-bottom:1px solid var(--border);
+  background:var(--s1);
+}
+.logo { display:flex; align-items:center; gap:14px; }
+.logo-mark { width:34px; height:34px; border:1.5px solid var(--cyan); border-radius:8px; display:flex; align-items:center; justify-content:center; font-family:'DM Mono',monospace; font-size:12px; color:var(--cyan); box-shadow:0 0 16px rgba(0,212,255,0.2); }
+.logo h1 { font-size:14px; font-weight:800; letter-spacing:4px; color:var(--cyan); }
+.logo p  { font-family:'DM Mono',monospace; font-size:8px; color:var(--muted); letter-spacing:2px; }
+.header-right { display:flex; align-items:center; gap:16px; }
+.live-badge { display:flex; align-items:center; gap:6px; font-family:'DM Mono',monospace; font-size:9px; color:var(--green); background:rgba(0,255,157,0.08); padding:5px 12px; border-radius:20px; border:1px solid rgba(0,255,157,0.2); }
+.dot { width:6px; height:6px; border-radius:50%; background:var(--green); box-shadow:0 0 6px var(--green); animation:blink 2s ease infinite; }
+@keyframes blink { 0%,100%{opacity:1;}50%{opacity:0.3;} }
+.hbtn { font-family:'DM Mono',monospace; font-size:9px; letter-spacing:1px; padding:5px 12px; border-radius:5px; border:1px solid var(--border); background:var(--s2); color:var(--muted); cursor:pointer; transition:all 0.2s; }
+.hbtn.active-j { border-color:var(--jacometo); color:var(--jacometo); background:rgba(10,132,255,0.08); }
+.hbtn.active-o { border-color:var(--orbe); color:var(--orbe); background:rgba(255,107,157,0.08); }
+
+/* ── PRODUTOS TABS ── */
+.tabs { display:flex; gap:1px; background:var(--border); }
+.tab { flex:1; padding:14px 24px; background:var(--s1); cursor:pointer; transition:all 0.2s; border-bottom:2px solid transparent; }
+.tab h2 { font-size:13px; font-weight:700; margin-bottom:2px; }
+.tab p  { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); }
+.tab.j { border-bottom-color:transparent; }
+.tab.j:hover, .tab.j.active { background:rgba(10,132,255,0.06); border-bottom-color:var(--jacometo); }
+.tab.j h2 { color:var(--jacometo); }
+.tab.o { border-bottom-color:transparent; }
+.tab.o:hover, .tab.o.active { background:rgba(255,107,157,0.06); border-bottom-color:var(--orbe); }
+.tab.o h2 { color:var(--orbe); }
+.tab.all { border-bottom-color:transparent; }
+.tab.all:hover, .tab.all.active { background:rgba(0,212,255,0.06); border-bottom-color:var(--cyan); }
+.tab.all h2 { color:var(--cyan); }
+
+/* ── FUNIL VISUAL ── */
+.funnel-section { padding:24px 28px; border-bottom:1px solid var(--border); }
+.section-title { font-family:'DM Mono',monospace; font-size:9px; letter-spacing:3px; color:var(--muted); text-transform:uppercase; margin-bottom:16px; display:flex; align-items:center; gap:10px; }
+.section-title::after { content:''; flex:1; height:1px; background:var(--border); }
+
+.funnel {
+  display:flex; align-items:stretch; gap:0;
+  overflow-x:auto;
+}
+
+.funnel-step {
+  flex:1; min-width:140px;
+  background:var(--s2);
+  border:1px solid var(--border);
+  border-right:none;
+  padding:18px 16px;
+  position:relative;
+  transition:all 0.2s;
+}
+.funnel-step:last-child { border-right:1px solid var(--border); border-radius:0 8px 8px 0; }
+.funnel-step:first-child { border-radius:8px 0 0 8px; }
+.funnel-step:hover { background:rgba(0,212,255,0.03); }
+
+/* Seta entre steps */
+.funnel-step:not(:last-child)::after {
+  content:'›';
+  position:absolute; right:-12px; top:50%; transform:translateY(-50%);
+  font-size:20px; color:var(--border); z-index:1;
+}
+
+.step-icon { font-size:22px; margin-bottom:10px; }
+.step-label { font-family:'DM Mono',monospace; font-size:8px; letter-spacing:2px; color:var(--muted); text-transform:uppercase; margin-bottom:6px; }
+.step-value { font-size:24px; font-weight:800; line-height:1; margin-bottom:4px; }
+.step-sub   { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); }
+.step-delta { font-family:'DM Mono',monospace; font-size:9px; margin-top:4px; }
+.up   { color:var(--green); }
+.down { color:var(--red); }
+
+.step-invest .step-value { color:var(--gold); }
+.step-leads  .step-value { color:var(--orange); }
+.step-atend  .step-value { color:var(--blue); }
+.step-deals  .step-value { color:var(--cyan); }
+.step-conv   .step-value { color:var(--purple); }
+.step-result .step-value { color:var(--green); }
+
+/* ── GRID MAIN ── */
+.main-grid { display:grid; grid-template-columns:1fr 1fr 360px; gap:1px; background:var(--border); }
+.panel { background:var(--s1); padding:20px; }
+
+/* ── CANAIS ── */
+.channel-list { display:flex; flex-direction:column; gap:8px; }
+.channel {
+  display:flex; align-items:center; gap:12px;
+  padding:12px 14px;
+  background:var(--s2); border:1px solid var(--border); border-radius:8px;
+  transition:all 0.2s; cursor:default;
+}
+.channel:hover { border-color:var(--b2); }
+.ch-icon { font-size:20px; width:36px; height:36px; display:flex; align-items:center; justify-content:center; border-radius:8px; flex-shrink:0; }
+.ch-icon.meta-j  { background:rgba(10,132,255,0.15); }
+.ch-icon.meta-o  { background:rgba(255,107,157,0.12); }
+.ch-icon.tiktok  { background:rgba(255,0,80,0.12); }
+.ch-icon.google  { background:rgba(52,168,83,0.12); }
+.ch-icon.cw-j    { background:rgba(10,132,255,0.1); }
+.ch-icon.cw-o    { background:rgba(255,107,157,0.1); }
+
+.ch-info { flex:1; min-width:0; }
+.ch-name { font-size:12px; font-weight:600; }
+.ch-stat { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); margin-top:2px; }
+
+.ch-metrics { display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+.ch-leads { font-family:'DM Mono',monospace; font-size:13px; font-weight:500; color:var(--orange); }
+.ch-cpl   { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); }
+
+.ch-bar { height:3px; background:var(--dim); border-radius:3px; margin-top:6px; overflow:hidden; }
+.ch-fill { height:100%; border-radius:3px; transition:width 1s ease; }
+.fill-j  { background:var(--jacometo); }
+.fill-o  { background:var(--orbe); }
+.fill-g  { background:#34a853; }
+.fill-t  { background:#ff0050; }
+
+/* ── DEALS RECENTES ── */
+.deal-list { display:flex; flex-direction:column; gap:6px; }
+.deal {
+  display:flex; align-items:center; gap:10px;
+  padding:10px 12px;
+  background:var(--s2); border:1px solid var(--border); border-radius:6px;
+  font-family:'DM Mono',monospace; font-size:10px;
+  transition:all 0.15s;
+}
+.deal:hover { border-color:var(--b2); }
+.deal-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.dd-open { background:var(--cyan); box-shadow:0 0 6px var(--cyan); }
+.dd-won  { background:var(--green); box-shadow:0 0 6px var(--green); }
+.dd-lost { background:var(--red); }
+.dd-idle { background:var(--orange); animation:blink 2s infinite; }
+
+.deal-info { flex:1; min-width:0; }
+.deal-name { color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:11px; }
+.deal-meta { color:var(--muted); font-size:9px; }
+.deal-val  { color:var(--green); font-size:11px; white-space:nowrap; }
+.deal-status { font-size:8px; padding:2px 6px; border-radius:3px; white-space:nowrap; }
+.ds-open { background:rgba(0,212,255,0.1); color:var(--cyan); }
+.ds-won  { background:rgba(0,255,157,0.1); color:var(--green); }
+.ds-lost { background:rgba(255,59,48,0.1); color:var(--red); }
+.ds-idle { background:rgba(255,149,0,0.1); color:var(--orange); }
+
+/* ── PAINEL ALERTAS ── */
+.alert-list { display:flex; flex-direction:column; gap:6px; }
+.alert {
+  padding:10px 12px;
+  border-radius:6px; border-left:3px solid;
+  background:var(--s2);
+}
+.alert.alto   { border-left-color:var(--red); }
+.alert.medio  { border-left-color:var(--orange); }
+.alert.info   { border-left-color:var(--cyan); }
+.alert-lvl  { font-family:'DM Mono',monospace; font-size:8px; letter-spacing:1px; margin-bottom:4px; }
+.alert.alto .alert-lvl  { color:var(--red); }
+.alert.medio .alert-lvl { color:var(--orange); }
+.alert.info .alert-lvl  { color:var(--cyan); }
+.alert-msg { font-size:11px; font-weight:600; margin-bottom:4px; }
+.alert-act { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); }
+
+/* ── RECOMENDAÇÕES ── */
+.rec-list { display:flex; flex-direction:column; gap:8px; }
+.rec {
+  padding:12px 14px; border-radius:6px;
+  background:var(--s2); border:1px solid rgba(255,149,0,0.2);
+}
+.rec-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.rec-tipo { font-family:'DM Mono',monospace; font-size:8px; letter-spacing:1px; color:var(--orange); }
+.rec-sit  { font-size:11px; font-weight:600; margin-bottom:8px; }
+.rec-opts { display:flex; flex-direction:column; gap:4px; margin-bottom:8px; }
+.rec-opt  { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); padding:4px 8px; border-radius:3px; background:rgba(255,255,255,0.02); }
+.rec-opt b { color:var(--text); }
+.rec-rec  { font-family:'DM Mono',monospace; font-size:9px; color:var(--gold); background:rgba(255,214,10,0.08); padding:5px 8px; border-radius:3px; }
+.rec-btns { display:flex; gap:5px; margin-top:8px; }
+.rbtn { flex:1; font-family:'DM Mono',monospace; font-size:8px; padding:5px; border-radius:4px; border:1px solid; cursor:pointer; transition:all 0.2s; letter-spacing:1px; }
+.rbtn-ok  { border-color:var(--green); color:var(--green); background:rgba(0,255,157,0.05); }
+.rbtn-no  { border-color:var(--red); color:var(--red); background:rgba(255,59,48,0.05); }
+.rbtn-ok:hover { background:rgba(0,255,157,0.15); }
+.rbtn-no:hover { background:rgba(255,59,48,0.15); }
+
+/* ── KPIs BOTTOM ── */
+.kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--border); border-top:1px solid var(--border); }
+.kpi { background:var(--s2); padding:16px 20px; }
+.kpi-label { font-family:'DM Mono',monospace; font-size:8px; letter-spacing:2px; color:var(--muted); text-transform:uppercase; margin-bottom:6px; }
+.kpi-val   { font-size:22px; font-weight:800; }
+.kpi-val.gold   { color:var(--gold); }
+.kpi-val.green  { color:var(--green); }
+.kpi-val.blue   { color:var(--blue); }
+.kpi-val.purple { color:var(--purple); }
+.kpi-sub   { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); margin-top:3px; }
+
+/* ── LOG TEMPO REAL ── */
+.log-stream { display:flex; flex-direction:column; gap:4px; max-height:300px; overflow-y:auto; }
+.log-stream::-webkit-scrollbar { width:3px; }
+.log-stream::-webkit-scrollbar-thumb { background:var(--border); }
+.log-item { display:flex; gap:8px; font-family:'DM Mono',monospace; font-size:9px; padding:5px 8px; border-radius:4px; animation:fadeIn 0.3s ease; }
+@keyframes fadeIn { from{opacity:0;transform:translateX(-4px);}to{opacity:1;transform:translateX(0);} }
+.log-time { color:var(--muted); flex-shrink:0; }
+.log-ev   { flex:1; color:var(--text); }
+.log-ev .jaco { color:var(--jacometo); }
+.log-ev .orbe-c { color:var(--orbe); }
+.log-ev .ok   { color:var(--green); }
+.log-ev .warn { color:var(--orange); }
+.log-ev .err  { color:var(--red); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">G</div>
+    <div>
+      <h1>GERENTE</h1>
+      <p>Loop Campanha → Lead → Deal → Venda</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="live-badge"><div class="dot"></div>OPUS ATIVO</div>
+  </div>
+</header>
+
+<!-- TABS PRODUTO -->
+<div class="tabs">
+  <div class="tab all active" onclick="setTab('all',this)">
+    <h2>🔄 Consolidado</h2>
+    <p>Jacometo + Orbe Pet</p>
+  </div>
+  <div class="tab j" onclick="setTab('jacometo',this)">
+    <h2>🔵 Jacometo Seguros</h2>
+    <p>Seguro de Transporte</p>
+  </div>
+  <div class="tab o" onclick="setTab('orbe',this)">
+    <h2>🐾 Orbe Pet</h2>
+    <p>Saúde Pet</p>
+  </div>
+</div>
+
+<!-- FUNIL COMPLETO -->
+<div class="funnel-section">
+  <div class="section-title">Loop Completo — Campanha → Lead → Atendimento → Deal → Resultado</div>
+  <div class="funnel">
+    <div class="funnel-step step-invest">
+      <div class="step-icon">💰</div>
+      <div class="step-label">Investido</div>
+      <div class="step-value" id="f-invest">R$405</div>
+      <div class="step-sub">hoje</div>
+      <div class="step-delta up">Meta + TikTok</div>
+    </div>
+    <div class="funnel-step step-leads">
+      <div class="step-icon">📣</div>
+      <div class="step-label">Leads Gerados</div>
+      <div class="step-value" id="f-leads">23</div>
+      <div class="step-sub">CPL médio R$ 17,60</div>
+      <div class="step-delta up">↑ +4 vs ontem</div>
+    </div>
+    <div class="funnel-step step-atend">
+      <div class="step-icon">💬</div>
+      <div class="step-label">Atendimentos</div>
+      <div class="step-value" id="f-atend">19</div>
+      <div class="step-sub">Chatwoot hoje</div>
+      <div class="step-delta">82% dos leads</div>
+    </div>
+    <div class="funnel-step step-deals">
+      <div class="step-icon">🔵</div>
+      <div class="step-label">Deals Criados</div>
+      <div class="step-value" id="f-deals">7</div>
+      <div class="step-sub">Pipedrive hoje</div>
+      <div class="step-delta">37% dos atend.</div>
+    </div>
+    <div class="funnel-step step-conv">
+      <div class="step-icon">📊</div>
+      <div class="step-label">Taxa Conv.</div>
+      <div class="step-value" id="f-conv">30%</div>
+      <div class="step-sub">lead → deal</div>
+      <div class="step-delta up">↑ vs 22% ontem</div>
+    </div>
+    <div class="funnel-step step-result">
+      <div class="step-icon">🏆</div>
+      <div class="step-label">Ganhos (mês)</div>
+      <div class="step-value" id="f-ganhos">12</div>
+      <div class="step-sub">deals fechados</div>
+      <div class="step-delta up">↑ +3 vs mês ant.</div>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN GRID -->
+<div class="main-grid">
+
+  <!-- CANAIS DE MÍDIA -->
+  <div class="panel">
+    <div class="section-title">Canais de Mídia</div>
+    <div class="channel-list">
+      <div class="channel">
+        <div class="ch-icon meta-j">📘</div>
+        <div class="ch-info">
+          <div class="ch-name">Meta Ads — Jacometo</div>
+          <div class="ch-stat">Campanhas: 4 ativas | CPL meta: R$35</div>
+          <div class="ch-bar"><div class="ch-fill fill-j" id="bar-metaj" style="width:62%"></div></div>
+        </div>
+        <div class="ch-metrics">
+          <div class="ch-leads">8 leads</div>
+          <div class="ch-cpl">CPL R$23,25</div>
+        </div>
+      </div>
+      <div class="channel">
+        <div class="ch-icon meta-o">📗</div>
+        <div class="ch-info">
+          <div class="ch-name">Meta Ads — Orbe Pet</div>
+          <div class="ch-stat">Campanhas: 3 ativas | CPL meta: R$50</div>
+          <div class="ch-bar"><div class="ch-fill fill-o" id="bar-metao" style="width:55%"></div></div>
+        </div>
+        <div class="ch-metrics">
+          <div class="ch-leads">11 leads</div>
+          <div class="ch-cpl">CPL R$19,82</div>
+        </div>
+      </div>
+      <div class="channel">
+        <div class="ch-icon tiktok">🎵</div>
+        <div class="ch-info">
+          <div class="ch-name">TikTok Ads — Orbe Pet</div>
+          <div class="ch-stat" style="color:var(--red)">⚠️ Token expirado</div>
+          <div class="ch-bar"><div class="ch-fill fill-t" style="width:0%"></div></div>
+        </div>
+        <div class="ch-metrics">
+          <div class="ch-leads" style="color:var(--red)">—</div>
+          <div class="ch-cpl">OFFLINE</div>
+        </div>
+      </div>
+      <div class="channel">
+        <div class="ch-icon google">🔍</div>
+        <div class="ch-info">
+          <div class="ch-name">Google Ads — Jacometo</div>
+          <div class="ch-stat" style="color:var(--orange)">OAuth pendente</div>
+          <div class="ch-bar"><div class="ch-fill fill-g" style="width:0%"></div></div>
+        </div>
+        <div class="ch-metrics">
+          <div class="ch-leads" style="color:var(--orange)">Setup</div>
+          <div class="ch-cpl">PENDING</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DEALS PIPEDRIVE -->
+  <div class="panel">
+    <div class="section-title">Deals Recentes — Pipedrive</div>
+    <div class="deal-list" id="deal-list">
+      <div class="deal">
+        <div class="deal-dot dd-idle"></div>
+        <div class="deal-info">
+          <div class="deal-name">Transportadora Silva & Filhos</div>
+          <div class="deal-meta">Alessandro · Meta Jaco · 52h sem atividade</div>
+        </div>
+        <div class="deal-val">R$ 8.400</div>
+        <div class="deal-status ds-idle">⚠️ IDLE</div>
+      </div>
+      <div class="deal">
+        <div class="deal-dot dd-open"></div>
+        <div class="deal-info">
+          <div class="deal-name">Frigorífico Paraná Ltda</div>
+          <div class="deal-meta">João · Meta Jaco · 2h atrás</div>
+        </div>
+        <div class="deal-val">R$ 12.000</div>
+        <div class="deal-status ds-open">ABERTO</div>
+      </div>
+      <div class="deal">
+        <div class="deal-dot dd-open"></div>
+        <div class="deal-info">
+          <div class="deal-name">Ana Lima — Orbe Galáxia</div>
+          <div class="deal-meta">Giovana · Meta Orbe · hoje</div>
+        </div>
+        <div class="deal-val">R$ 138</div>
+        <div class="deal-status ds-open">ABERTO</div>
+      </div>
+      <div class="deal">
+        <div class="deal-dot dd-won"></div>
+        <div class="deal-info">
+          <div class="deal-name">Logística Sudeste S.A.</div>
+          <div class="deal-meta">Adriano · Google Jaco · ontem</div>
+        </div>
+        <div class="deal-val">R$ 45.200</div>
+        <div class="deal-status ds-won">✓ GANHO</div>
+      </div>
+      <div class="deal">
+        <div class="deal-dot dd-open"></div>
+        <div class="deal-info">
+          <div class="deal-name">Carlos Mendes — Orbe Plus</div>
+          <div class="deal-meta">Giovana · TikTok · hoje</div>
+        </div>
+        <div class="deal-val">R$ 89</div>
+        <div class="deal-status ds-open">ABERTO</div>
+      </div>
+      <div class="deal">
+        <div class="deal-dot dd-won"></div>
+        <div class="deal-info">
+          <div class="deal-name">Transportes ABC Ltda</div>
+          <div class="deal-meta">Garcia · Meta Jaco · 3 dias</div>
+        </div>
+        <div class="deal-val">R$ 23.800</div>
+        <div class="deal-status ds-won">✓ GANHO</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ALERTAS + RECOMENDAÇÕES -->
+  <div class="panel" style="display:flex;flex-direction:column;gap:16px;">
+
+    <!-- ALERTAS -->
+    <div>
+      <div class="section-title">Alertas Ativos</div>
+      <div class="alert-list">
+        <div class="alert alto">
+          <div class="alert-lvl">🔴 ALTO</div>
+          <div class="alert-msg">2 deals sem atividade +48h</div>
+          <div class="alert-act">→ Cobrar Alessandro e João via Pipedrive</div>
+        </div>
+        <div class="alert medio">
+          <div class="alert-lvl">🟡 MÉDIO</div>
+          <div class="alert-msg">TikTok Orbe offline — token expirado</div>
+          <div class="alert-act">→ Renovar TIKTOK_REFRESH_TOKEN no .env</div>
+        </div>
+        <div class="alert medio">
+          <div class="alert-lvl">🟡 MÉDIO</div>
+          <div class="alert-msg">GAP Meta×CRM: 4 leads sem inbound</div>
+          <div class="alert-act">→ Verificar se Chatwoot está recebendo</div>
+        </div>
+        <div class="alert info">
+          <div class="alert-lvl">🔵 INFO</div>
+          <div class="alert-msg">Taxa conversão subiu 30% (+8% vs ontem)</div>
+          <div class="alert-act">→ Identificar qual campanha trouxe melhora</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RECOMENDAÇÕES -->
+    <div>
+      <div class="section-title">Recomendações — Aguardam OK</div>
+      <div class="rec-list">
+        <div class="rec" id="rec1">
+          <div class="rec-header">
+            <span class="rec-tipo">ORÇAMENTO · META JACO</span>
+          </div>
+          <div class="rec-sit">Campanha "Carga PR" — CPL R$89 acima do limite</div>
+          <div class="rec-opts">
+            <div class="rec-opt"><b>A:</b> Pausar e realocar R$50/dia para "Transportadoras SP"</div>
+            <div class="rec-opt"><b>B:</b> Manter e testar novo criativo por 48h</div>
+          </div>
+          <div class="rec-rec">→ Jarvis recomenda: OPÇÃO A</div>
+          <div class="rec-btns">
+            <button class="rbtn rbtn-ok" onclick="aprovar('rec1','A')">✓ OPÇÃO A</button>
+            <button class="rbtn rbtn-no" onclick="aprovar('rec1','B')">→ OPÇÃO B</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOG TEMPO REAL -->
+    <div>
+      <div class="section-title">Eventos em Tempo Real</div>
+      <div class="log-stream" id="log-stream">
+        <div class="log-item"><span class="log-time">08:02</span><span class="log-ev"><span class="jaco">Jacometo</span> — Lead novo: "Transportadora Silva" via Meta Ads</span></div>
+        <div class="log-item"><span class="log-time">08:05</span><span class="log-ev"><span class="ok">✓</span> Deal criado no Pipedrive: #4821</span></div>
+        <div class="log-item"><span class="log-time">09:15</span><span class="log-ev"><span class="orbe-c">Orbe</span> — 3 leads via Meta, 1 via TikTok (offline)</span></div>
+        <div class="log-item"><span class="log-time">09:17</span><span class="log-ev"><span class="warn">⚠️</span> TikTok token expirado — Orbe sem dados</span></div>
+        <div class="log-item"><span class="log-time">10:00</span><span class="log-ev">Meta×CRM GAP: 4 leads sem inbound no Chatwoot</span></div>
+        <div class="log-item"><span class="log-time">12:02</span><span class="log-ev"><span class="jaco">Jacometo</span> — Deal #4819 ganho: Logística Sudeste R$45.200 🏆</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- KPIs BOTTOM -->
+<div class="kpi-row">
+  <div class="kpi">
+    <div class="kpi-label">Investimento Total Hoje</div>
+    <div class="kpi-val gold" id="kpi-invest">R$ 405</div>
+    <div class="kpi-sub">Meta Jacometo + Orbe</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Deals Ganhos (Mês)</div>
+    <div class="kpi-val green" id="kpi-ganhos">12</div>
+    <div class="kpi-sub">↑ +3 vs mês anterior</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Receita Estimada (Mês)</div>
+    <div class="kpi-val blue" id="kpi-receita">R$ 89k</div>
+    <div class="kpi-sub">Jacometo + Orbe MRR</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">ROAS Médio</div>
+    <div class="kpi-val purple" id="kpi-roas">42x</div>
+    <div class="kpi-sub">Receita ÷ Investimento</div>
+  </div>
+</div>
+
+<script>
+// ── TABS ─────────────────────────────────────────────────────────────────────
+function setTab(tab, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  // Em produção: filtra dados por produto
+}
+
+// ── APROVAR RECOMENDAÇÃO ──────────────────────────────────────────────────────
+function aprovar(id, opcao) {
+  const rec = document.getElementById(id);
+  const msg = opcao === 'A'
+    ? '✅ Aprovado — executando OPÇÃO A...'
+    : '→ Executando OPÇÃO B...';
+  rec.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--green);padding:8px;">${msg}</div>`;
+
+  // Log
+  addLog(`Adriano aprovou recomendação: Opção ${opcao}`);
+}
+
+// ── LOG STREAM SIMULADO ───────────────────────────────────────────────────────
+function addLog(msg, tipo = '') {
+  const log = document.getElementById('log-stream');
+  const now = new Date().toLocaleTimeString('pt-BR',{hour12:false,hour:'2-digit',minute:'2-digit'});
+  const div = document.createElement('div');
+  div.className = 'log-item';
+  div.innerHTML = `<span class="log-time">${now}</span><span class="log-ev">${msg}</span>`;
+  log.prepend(div);
+  while(log.children.length > 20) log.removeChild(log.lastChild);
+}
+
+// Simula eventos em tempo real
+const eventos = [
+  () => addLog('<span class="jaco">Jacometo</span> — Lead novo via Meta Ads: "Transportes MG"'),
+  () => addLog('<span class="ok">✓</span> Deal criado Pipedrive: Transportes MG #4822'),
+  () => addLog('<span class="orbe-c">Orbe</span> — Plano Galáxia ativado: Maria S. R$138,32'),
+  () => addLog('<span class="warn">⚠️</span> Deal sem atividade +48h: Alessandro — verificar'),
+  () => addLog('<span class="jaco">Jacometo</span> — Deal #4818 avançou para negociação'),
+  () => addLog('Cron 12h: 19 leads hoje | 7 deals | taxa 37%'),
+];
+let evIdx = 0;
+setInterval(() => {
+  eventos[evIdx % eventos.length]();
+  evIdx++;
+}, 12000);
+</script>
+</body>
+</html>

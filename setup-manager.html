@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS OS — Setup Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:     #04060a;
+  --s1:     #080d14;
+  --s2:     #0c1520;
+  --s3:     #101c28;
+  --bd:     #162030;
+  --bd2:    #1e3048;
+  --text:   #cce0ee;
+  --muted:  #3a5a6e;
+  --dim:    #182535;
+
+  --cyan:   #00d4ff;
+  --green:  #00ff9d;
+  --orange: #ff9500;
+  --red:    #ff3b30;
+  --gold:   #ffd60a;
+  --purple: #bf5af2;
+
+  --ok:     rgba(0,255,157,0.12);
+  --warn:   rgba(255,149,0,0.12);
+  --err:    rgba(255,59,48,0.12);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Syne', sans-serif;
+  min-height: 100vh;
+}
+
+/* grain */
+body::before {
+  content:'';
+  position:fixed; inset:0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+  pointer-events:none; z-index:999;
+}
+
+/* ── HEADER ── */
+header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 32px; border-bottom:1px solid var(--bd);
+  background:var(--s1); position:sticky; top:0; z-index:100;
+}
+.logo { display:flex; align-items:center; gap:14px; }
+.logo-mark {
+  width:38px; height:38px; border:1.5px solid var(--cyan);
+  border-radius:8px; display:flex; align-items:center; justify-content:center;
+  font-family:'DM Mono',monospace; font-size:13px; color:var(--cyan);
+  box-shadow:0 0 16px rgba(0,212,255,0.25); animation:pulse 3s ease infinite;
+}
+@keyframes pulse { 0%,100%{box-shadow:0 0 16px rgba(0,212,255,0.2);}50%{box-shadow:0 0 28px rgba(0,212,255,0.5);} }
+.logo h1 { font-size:15px; font-weight:800; letter-spacing:4px; color:var(--cyan); }
+.logo p  { font-family:'DM Mono',monospace; font-size:8px; color:var(--muted); letter-spacing:2px; }
+
+.header-right { display:flex; align-items:center; gap:12px; }
+.progress-label { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); letter-spacing:1px; }
+.progress-bar { width:160px; height:4px; background:var(--bd); border-radius:4px; overflow:hidden; }
+.progress-fill { height:100%; background:linear-gradient(90deg,var(--cyan),var(--green)); border-radius:4px; transition:width 0.5s ease; }
+
+/* ── LAYOUT ── */
+.container { display:grid; grid-template-columns:220px 1fr; min-height:calc(100vh - 65px); }
+
+/* ── NAV LATERAL ── */
+nav { background:var(--s1); border-right:1px solid var(--bd); padding:20px 0; position:sticky; top:65px; height:calc(100vh - 65px); overflow-y:auto; }
+.nav-section { margin-bottom:4px; }
+.nav-section-title {
+  font-family:'DM Mono',monospace; font-size:8px; letter-spacing:3px;
+  color:var(--muted); text-transform:uppercase;
+  padding:10px 20px 6px;
+}
+.nav-item {
+  display:flex; align-items:center; gap:10px;
+  padding:9px 20px; cursor:pointer; transition:all 0.15s;
+  border-left:2px solid transparent; font-size:12px; font-weight:600;
+}
+.nav-item:hover { background:rgba(0,212,255,0.04); border-left-color:var(--bd2); }
+.nav-item.active { background:rgba(0,212,255,0.07); border-left-color:var(--cyan); color:var(--cyan); }
+.nav-item .nav-icon { font-size:14px; flex-shrink:0; }
+.nav-item .nav-status { margin-left:auto; width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.ns-ok   { background:var(--green); box-shadow:0 0 5px var(--green); }
+.ns-warn { background:var(--orange); }
+.ns-err  { background:var(--red); animation:blink 1.5s infinite; }
+@keyframes blink { 0%,100%{opacity:1;}50%{opacity:0.3;} }
+
+/* ── MAIN ── */
+main { padding:28px 36px; overflow-y:auto; }
+
+/* ── SEÇÃO ── */
+.section { display:none; }
+.section.active { display:block; animation:fadeIn 0.25s ease; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);} }
+
+.section-header { margin-bottom:24px; }
+.section-header h2 { font-size:20px; font-weight:800; margin-bottom:4px; }
+.section-header p  { font-family:'DM Mono',monospace; font-size:10px; color:var(--muted); }
+
+/* ── GRUPOS DE FIELDS ── */
+.field-group {
+  background:var(--s2); border:1px solid var(--bd);
+  border-radius:10px; margin-bottom:16px; overflow:hidden;
+}
+.field-group-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 18px; border-bottom:1px solid var(--bd);
+  background:rgba(0,0,0,0.2);
+}
+.fg-title { font-size:13px; font-weight:700; display:flex; align-items:center; gap:8px; }
+.fg-badge {
+  font-family:'DM Mono',monospace; font-size:8px; padding:2px 8px;
+  border-radius:3px; letter-spacing:1px;
+}
+.fg-badge.ok   { background:var(--ok);   color:var(--green); }
+.fg-badge.warn { background:var(--warn); color:var(--orange); }
+.fg-badge.err  { background:var(--err);  color:var(--red); }
+
+.fg-link {
+  font-family:'DM Mono',monospace; font-size:9px; color:var(--muted);
+  text-decoration:none; padding:4px 8px; border-radius:4px; border:1px solid var(--bd);
+  transition:all 0.2s;
+}
+.fg-link:hover { border-color:var(--cyan); color:var(--cyan); }
+
+/* ── FIELDS ── */
+.field {
+  display:grid; grid-template-columns:180px 1fr auto;
+  align-items:center; gap:12px; padding:12px 18px;
+  border-bottom:1px solid rgba(22,32,48,0.6);
+  transition:background 0.15s;
+}
+.field:last-child { border-bottom:none; }
+.field:hover { background:rgba(0,212,255,0.02); }
+
+.field-label {
+  font-family:'DM Mono',monospace; font-size:10px;
+  color:var(--text); letter-spacing:0.5px;
+}
+.field-desc { font-size:9px; color:var(--muted); margin-top:2px; }
+
+.field-input-wrap { position:relative; }
+.field-input {
+  width:100%; background:var(--s3); border:1px solid var(--bd);
+  border-radius:5px; color:var(--text); font-family:'DM Mono',monospace;
+  font-size:11px; padding:8px 36px 8px 12px; outline:none;
+  transition:border-color 0.2s, box-shadow 0.2s;
+}
+.field-input:focus { border-color:var(--cyan); box-shadow:0 0 10px rgba(0,212,255,0.12); }
+.field-input.filled { border-color:rgba(0,255,157,0.3); }
+.field-input.filled:not(:focus) { background:rgba(0,255,157,0.04); }
+
+.toggle-vis {
+  position:absolute; right:10px; top:50%; transform:translateY(-50%);
+  background:none; border:none; cursor:pointer; color:var(--muted);
+  font-size:13px; padding:2px; transition:color 0.2s;
+}
+.toggle-vis:hover { color:var(--text); }
+
+.field-status { flex-shrink:0; }
+.fstatus {
+  width:22px; height:22px; border-radius:50%; display:flex;
+  align-items:center; justify-content:center; font-size:10px;
+  font-weight:700; flex-shrink:0;
+}
+.fstatus.ok   { background:var(--ok);   color:var(--green); }
+.fstatus.warn { background:var(--warn); color:var(--orange); }
+.fstatus.empty { background:var(--dim); color:var(--muted); }
+
+/* ── BOTÕES ── */
+.btn-row { display:flex; gap:10px; margin-top:20px; }
+.btn {
+  font-family:'DM Mono',monospace; font-size:10px; letter-spacing:1.5px;
+  padding:10px 22px; border-radius:6px; border:1px solid; cursor:pointer;
+  transition:all 0.2s; font-weight:500;
+}
+.btn-primary { border-color:var(--cyan); color:var(--cyan); background:rgba(0,212,255,0.08); }
+.btn-primary:hover { background:rgba(0,212,255,0.18); box-shadow:0 0 16px rgba(0,212,255,0.2); }
+.btn-success { border-color:var(--green); color:var(--green); background:rgba(0,255,157,0.08); }
+.btn-success:hover { background:rgba(0,255,157,0.18); }
+.btn-ghost { border-color:var(--bd); color:var(--muted); background:transparent; }
+.btn-ghost:hover { border-color:var(--bd2); color:var(--text); }
+.btn-danger { border-color:var(--red); color:var(--red); background:rgba(255,59,48,0.06); }
+
+/* ── OUTPUT .env ── */
+.env-output {
+  background:var(--s3); border:1px solid var(--bd); border-radius:8px;
+  padding:16px; font-family:'DM Mono',monospace; font-size:11px;
+  line-height:1.8; color:var(--text); white-space:pre; overflow-x:auto;
+  margin-top:16px; position:relative; max-height:500px; overflow-y:auto;
+}
+.env-output::-webkit-scrollbar { width:4px; height:4px; }
+.env-output::-webkit-scrollbar-thumb { background:var(--bd2); border-radius:2px; }
+.env-comment { color:var(--muted); }
+.env-key     { color:var(--cyan); }
+.env-val     { color:var(--green); }
+.env-empty   { color:var(--orange); }
+
+.copy-btn {
+  position:absolute; top:12px; right:12px;
+  font-family:'DM Mono',monospace; font-size:8px; letter-spacing:1px;
+  padding:5px 12px; border-radius:4px; border:1px solid var(--bd);
+  background:var(--s2); color:var(--muted); cursor:pointer;
+  transition:all 0.2s;
+}
+.copy-btn:hover { border-color:var(--cyan); color:var(--cyan); }
+
+/* ── CHECKLIST INSTALAÇÃO ── */
+.checklist { display:flex; flex-direction:column; gap:8px; }
+.check-item {
+  display:flex; align-items:flex-start; gap:12px;
+  padding:14px 16px; background:var(--s2); border:1px solid var(--bd);
+  border-radius:8px; cursor:pointer; transition:all 0.2s;
+}
+.check-item:hover { border-color:var(--bd2); }
+.check-item.done { background:rgba(0,255,157,0.04); border-color:rgba(0,255,157,0.2); }
+.check-box {
+  width:20px; height:20px; border-radius:4px; border:1.5px solid var(--muted);
+  display:flex; align-items:center; justify-content:center;
+  flex-shrink:0; font-size:11px; transition:all 0.2s; margin-top:1px;
+}
+.check-item.done .check-box { background:var(--green); border-color:var(--green); color:var(--bg); }
+.check-body { flex:1; }
+.check-title { font-size:13px; font-weight:600; margin-bottom:3px; }
+.check-item.done .check-title { text-decoration:line-through; color:var(--muted); }
+.check-cmd {
+  font-family:'DM Mono',monospace; font-size:10px; color:var(--cyan);
+  background:rgba(0,212,255,0.07); padding:4px 8px; border-radius:3px;
+  margin-top:6px; display:inline-block;
+}
+.check-note { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); margin-top:4px; }
+
+/* ── TOAST ── */
+.toast {
+  position:fixed; bottom:24px; right:24px;
+  background:var(--s2); border:1px solid var(--green);
+  color:var(--green); font-family:'DM Mono',monospace; font-size:11px;
+  padding:12px 20px; border-radius:8px; z-index:9999;
+  box-shadow:0 0 20px rgba(0,255,157,0.2);
+  animation:slideUp 0.3s ease; display:none;
+}
+.toast.show { display:block; }
+@keyframes slideUp { from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);} }
+
+/* ── SUMMARY CARD ── */
+.summary-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:20px; }
+.sum-card { background:var(--s2); border:1px solid var(--bd); border-radius:8px; padding:14px; }
+.sum-card-title { font-family:'DM Mono',monospace; font-size:8px; letter-spacing:2px; color:var(--muted); margin-bottom:8px; }
+.sum-card-val { font-size:26px; font-weight:800; }
+.sum-card-val.green  { color:var(--green); }
+.sum-card-val.orange { color:var(--orange); }
+.sum-card-val.red    { color:var(--red); }
+.sum-card-sub { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); margin-top:3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">J</div>
+    <div>
+      <h1>JARVIS OS</h1>
+      <p>Setup Manager · Configuração de API Keys</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="progress-label">CONFIGURADO</span>
+    <div class="progress-bar"><div class="progress-fill" id="progress" style="width:0%"></div></div>
+    <span class="progress-label" id="progress-pct">0%</span>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- NAV LATERAL -->
+  <nav>
+    <div class="nav-section">
+      <div class="nav-section-title">Visão Geral</div>
+      <div class="nav-item active" onclick="showSection('overview',this)">
+        <span class="nav-icon">🚀</span> Instalação
+        <div class="nav-status ns-warn" id="ns-overview"></div>
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Core</div>
+      <div class="nav-item" onclick="showSection('telegram',this)">
+        <span class="nav-icon">✈️</span> Telegram
+        <div class="nav-status ns-warn" id="ns-telegram"></div>
+      </div>
+      <div class="nav-item" onclick="showSection('anthropic',this)">
+        <span class="nav-icon">🤖</span> Claude API
+        <div class="nav-status ns-warn" id="ns-anthropic"></div>
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">CRM & Vendas</div>
+      <div class="nav-item" onclick="showSection('pipedrive',this)">
+        <span class="nav-icon">🔵</span> Pipedrive
+        <div class="nav-status ns-warn" id="ns-pipedrive"></div>
+      </div>
+      <div class="nav-item" onclick="showSection('chatwoot',this)">
+        <span class="nav-icon">💬</span> Chatwoot
+        <div class="nav-status ns-err" id="ns-chatwoot"></div>
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Mídia & Ads</div>
+      <div class="nav-item" onclick="showSection('meta',this)">
+        <span class="nav-icon">📘</span> Meta Ads
+        <div class="nav-status ns-warn" id="ns-meta"></div>
+      </div>
+      <div class="nav-item" onclick="showSection('tiktok',this)">
+        <span class="nav-icon">🎵</span> TikTok
+        <div class="nav-status ns-err" id="ns-tiktok"></div>
+      </div>
+      <div class="nav-item" onclick="showSection('google',this)">
+        <span class="nav-icon">🔍</span> Google Ads
+        <div class="nav-status ns-err" id="ns-google"></div>
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Voz & Busca</div>
+      <div class="nav-item" onclick="showSection('elevenlabs',this)">
+        <span class="nav-icon">🎙️</span> ElevenLabs
+        <div class="nav-status ns-warn" id="ns-elevenlabs"></div>
+      </div>
+      <div class="nav-item" onclick="showSection('search',this)">
+        <span class="nav-icon">🔍</span> Web Search
+        <div class="nav-status ns-ok" id="ns-search"></div>
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Automação</div>
+      <div class="nav-item" onclick="showSection('playwright',this)">
+        <span class="nav-icon">🎭</span> Playwright
+        <div class="nav-status ns-err" id="ns-playwright"></div>
+      </div>
+      <div class="nav-item" onclick="showSection('arquivo',this)">
+        <span class="nav-icon">⚙️</span> Agente ARQUIVO
+        <div class="nav-status ns-err" id="ns-arquivo"></div>
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Output</div>
+      <div class="nav-item" onclick="showSection('envfile',this)">
+        <span class="nav-icon">📄</span> Gerar .env
+        <div class="nav-status ns-ok" id="ns-envfile"></div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <main>
+
+    <!-- OVERVIEW -->
+    <div class="section active" id="sec-overview">
+      <div class="section-header">
+        <h2>🚀 Instalação no Mac Mini 2</h2>
+        <p>Checklist completo para colocar o Jarvis OS no ar</p>
+      </div>
+
+      <div class="summary-grid">
+        <div class="sum-card">
+          <div class="sum-card-title">KEYS CONFIGURADAS</div>
+          <div class="sum-card-val green" id="sum-ok">0</div>
+          <div class="sum-card-sub">de <span id="sum-total">0</span> necessárias</div>
+        </div>
+        <div class="sum-card">
+          <div class="sum-card-title">PENDENTES</div>
+          <div class="sum-card-val orange" id="sum-warn">0</div>
+          <div class="sum-card-sub">ainda não configuradas</div>
+        </div>
+        <div class="sum-card">
+          <div class="sum-card-title">PROGRESSO</div>
+          <div class="sum-card-val green" id="sum-pct">0%</div>
+          <div class="sum-card-sub">do setup completo</div>
+        </div>
+      </div>
+
+      <div class="checklist">
+        <div class="check-item" onclick="toggleCheck(this)">
+          <div class="check-box"></div>
+          <div class="check-body">
+            <div class="check-title">Baixar projeto FINAL no Mac Mini 2</div>
+            <div class="check-cmd">cd ~ && unzip jarvis-claude-FINAL.zip -d jarvis-claude</div>
+          </div>
+        </div>
+        <div class="check-item" onclick="toggleCheck(this)">
+          <div class="check-box"></div>
+          <div class="check-body">
+            <div class="check-title">Verificar Node.js v22+</div>
+            <div class="check-cmd">node --version</div>
+            <div class="check-note">Se menor que v22: nvm install 22 && nvm use 22</div>
+          </div>
+        </div>
+        <div class="check-item" onclick="toggleCheck(this)">
+          <div class="check-box"></div>
+          <div class="check-body">
+            <div class="check-title">Instalar dependências</div>
+            <div class="check-cmd">cd ~/jarvis-claude && npm install</div>
+          </div>
+        </div>
+        <div class="check-item" onclick="toggleCheck(this)">
+          <div class="check-box"></div>
+          <div class="check-body">
+            <div class="check-title">Instalar Playwright + Chromium</div>
+            <div class="check-cmd">chmod +x setup-playwright.sh && ./setup-playwright.sh</div>
+          </div>
+        </div>
+        <div class="check-item" onclick="toggleCheck(this)">
+          <div class="check-box"></div>
+          <div class="check-body">
+            <div class="check-title">Configurar .env com as keys (esta página!)</div>
+            <div class="check-cmd">Gerar .env → copiar → nano ~/jarvis-claude/.env</div>
+          </div>
+        </div>
+        <div class="check-item" onclick="toggleCheck(this)">
+          <div class="check-box"></div>
+          <div class="check-body">
+            <div class="check-title">Criar bot no @BotFather do Telegram</div>
+            <div class="check-cmd">/newbot → escolher nome @jarvisclaude</div>
+            <div class="check-note">Copiar o token e adicionar no campo Telegram abaixo</div>
+          </div>
+        </div>
+        <div class="check-item" onclick="toggleCheck(this)">
+          <div class="check-box"></div>
+          <div class="check-body">
+            <div class="check-title">Testar Jarvis</div>
+            <div class="check-cmd">node src/index.js</div>
+            <div class="check-note">Deve aparecer "🤖 Jarvis online" e "🌐 Webhook Server"</div>
+          </div>
+        </div>
+        <div class="check-item" onclick="toggleCheck(this)">
+          <div class="check-box"></div>
+          <div class="check-body">
+            <div class="check-title">Rodar em background com pm2</div>
+            <div class="check-cmd">npm install -g pm2 && pm2 start src/index.js --name jarvis && pm2 save && pm2 startup</div>
+          </div>
+        </div>
+        <div class="check-item" onclick="toggleCheck(this)">
+          <div class="check-box"></div>
+          <div class="check-body">
+            <div class="check-title">Testar no Telegram: /start</div>
+            <div class="check-cmd">Abrir @jarvisclaude → /start</div>
+            <div class="check-note">Deve responder com a mensagem de boas-vindas do Jarvis</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TELEGRAM -->
+    <div class="section" id="sec-telegram">
+      <div class="section-header">
+        <h2>✈️ Telegram</h2>
+        <p>Bot do Jarvis no Telegram · @jarvisclaude</p>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header">
+          <div class="fg-title">🤖 Bot Configuration</div>
+          <a href="https://t.me/BotFather" target="_blank" class="fg-link">@BotFather ↗</a>
+        </div>
+        <div class="field">
+          <div><div class="field-label">TELEGRAM_TOKEN</div><div class="field-desc">Token do bot via @BotFather</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="TELEGRAM_TOKEN" placeholder="1234567890:AAAA..." oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('TELEGRAM_TOKEN')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-TELEGRAM_TOKEN">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">ALLOWED_USER_IDS</div><div class="field-desc">Seu Telegram ID (fale com @userinfobot)</div></div>
+          <div class="field-input-wrap">
+            <input type="text" class="field-input" id="ALLOWED_USER_IDS" placeholder="123456789,987654321" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('ALLOWED_USER_IDS')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-ALLOWED_USER_IDS">?</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ANTHROPIC -->
+    <div class="section" id="sec-anthropic">
+      <div class="section-header">
+        <h2>🤖 Claude API (Anthropic)</h2>
+        <p>Cérebro do Jarvis · console.anthropic.com</p>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header">
+          <div class="fg-title">🧠 Anthropic API</div>
+          <a href="https://console.anthropic.com/settings/keys" target="_blank" class="fg-link">Console ↗</a>
+        </div>
+        <div class="field">
+          <div><div class="field-label">ANTHROPIC_API_KEY</div><div class="field-desc">API Key do Console Anthropic</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="ANTHROPIC_API_KEY" placeholder="sk-ant-api03-..." oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('ANTHROPIC_API_KEY')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-ANTHROPIC_API_KEY">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">CLAUDE_MODEL</div><div class="field-desc">Modelo padrão (Sonnet recomendado)</div></div>
+          <div class="field-input-wrap">
+            <input type="text" class="field-input filled" id="CLAUDE_MODEL" value="claude-sonnet-4-6" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('CLAUDE_MODEL')">👁</button>
+          </div>
+          <div class="fstatus ok" id="fs-CLAUDE_MODEL">✓</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PIPEDRIVE -->
+    <div class="section" id="sec-pipedrive">
+      <div class="section-header">
+        <h2>🔵 Pipedrive</h2>
+        <p>CRM Jacometo · API v2 · jacometo.pipedrive.com</p>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header">
+          <div class="fg-title">Pipedrive API</div>
+          <a href="https://jacometo.pipedrive.com/settings/personal/api" target="_blank" class="fg-link">API Settings ↗</a>
+        </div>
+        <div class="field">
+          <div><div class="field-label">PIPEDRIVE_COMPANY_DOMAIN</div><div class="field-desc">Subdomínio da sua conta</div></div>
+          <div class="field-input-wrap">
+            <input type="text" class="field-input filled" id="PIPEDRIVE_COMPANY_DOMAIN" value="jacometo" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('PIPEDRIVE_COMPANY_DOMAIN')">👁</button>
+          </div>
+          <div class="fstatus ok" id="fs-PIPEDRIVE_COMPANY_DOMAIN">✓</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">PIPEDRIVE_TOKEN_JACOMETO</div><div class="field-desc">API Token pessoal</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="PIPEDRIVE_TOKEN_JACOMETO" placeholder="abc123def456..." oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('PIPEDRIVE_TOKEN_JACOMETO')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-PIPEDRIVE_TOKEN_JACOMETO">?</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHATWOOT -->
+    <div class="section" id="sec-chatwoot">
+      <div class="section-header">
+        <h2>💬 Chatwoot</h2>
+        <p>Duas instâncias · Jacometo + Orbe Pet</p>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header">
+          <div class="fg-title">💬 Jacometo CRM</div>
+          <a href="https://crm.jacometo.com.br" target="_blank" class="fg-link">crm.jacometo.com.br ↗</a>
+        </div>
+        <div class="field">
+          <div><div class="field-label">CHATWOOT_TOKEN_JACOMETO</div><div class="field-desc">Profile → Access Token</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="CHATWOOT_TOKEN_JACOMETO" placeholder="seu_access_token" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('CHATWOOT_TOKEN_JACOMETO')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-CHATWOOT_TOKEN_JACOMETO">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">CHATWOOT_SECRET_JACOMETO</div><div class="field-desc">Settings → Webhooks → Secret</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="CHATWOOT_SECRET_JACOMETO" placeholder="webhook_secret" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('CHATWOOT_SECRET_JACOMETO')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-CHATWOOT_SECRET_JACOMETO">?</div>
+        </div>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header">
+          <div class="fg-title">🐾 Orbe Pet CRM</div>
+          <a href="https://crm.orbepet.com.br" target="_blank" class="fg-link">crm.orbepet.com.br ↗</a>
+        </div>
+        <div class="field">
+          <div><div class="field-label">CHATWOOT_TOKEN_ORBE</div><div class="field-desc">Profile → Access Token (conta Orbe)</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="CHATWOOT_TOKEN_ORBE" placeholder="seu_access_token_orbe" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('CHATWOOT_TOKEN_ORBE')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-CHATWOOT_TOKEN_ORBE">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">CHATWOOT_SECRET_ORBE</div><div class="field-desc">Settings → Webhooks → Secret (Orbe)</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="CHATWOOT_SECRET_ORBE" placeholder="webhook_secret_orbe" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('CHATWOOT_SECRET_ORBE')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-CHATWOOT_SECRET_ORBE">?</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- META ADS -->
+    <div class="section" id="sec-meta">
+      <div class="section-header">
+        <h2>📘 Meta Ads</h2>
+        <p>2 Apps separados · Jacometo + Orbe Pet · developers.facebook.com</p>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header">
+          <div class="fg-title">📘 App Jacometo</div>
+          <a href="https://developers.facebook.com/apps" target="_blank" class="fg-link">Developers ↗</a>
+        </div>
+        <div class="field">
+          <div><div class="field-label">META_APP_TOKEN_JACOMETO</div><div class="field-desc">Access Token com ads_read</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="META_APP_TOKEN_JACOMETO" placeholder="EAAxxxxxx" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('META_APP_TOKEN_JACOMETO')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-META_APP_TOKEN_JACOMETO">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">META_AD_ACCOUNT_JACOMETO</div><div class="field-desc">ID da conta de anúncios</div></div>
+          <div class="field-input-wrap">
+            <input type="text" class="field-input" id="META_AD_ACCOUNT_JACOMETO" placeholder="act_123456789" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('META_AD_ACCOUNT_JACOMETO')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-META_AD_ACCOUNT_JACOMETO">?</div>
+        </div>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header">
+          <div class="fg-title">📗 App Orbe Pet</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">META_APP_TOKEN_ORBE</div><div class="field-desc">Access Token Orbe Pet</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="META_APP_TOKEN_ORBE" placeholder="EAAxxxxxx" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('META_APP_TOKEN_ORBE')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-META_APP_TOKEN_ORBE">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">META_AD_ACCOUNT_ORBE</div><div class="field-desc">Conta Orbe Pet (já mapeada)</div></div>
+          <div class="field-input-wrap">
+            <input type="text" class="field-input filled" id="META_AD_ACCOUNT_ORBE" value="act_596420432003943" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('META_AD_ACCOUNT_ORBE')">👁</button>
+          </div>
+          <div class="fstatus ok" id="fs-META_AD_ACCOUNT_ORBE">✓</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TIKTOK -->
+    <div class="section" id="sec-tiktok">
+      <div class="section-header">
+        <h2>🎵 TikTok Ads</h2>
+        <p>Orbe Pet · Business API v1.3 · business-api.tiktok.com</p>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header">
+          <div class="fg-title">🎵 TikTok Business API</div>
+          <a href="https://business-api.tiktok.com/portal" target="_blank" class="fg-link">Portal ↗</a>
+        </div>
+        <div class="field">
+          <div><div class="field-label">TIKTOK_ACCESS_TOKEN</div><div class="field-desc">Access Token (válido 24h)</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="TIKTOK_ACCESS_TOKEN" placeholder="seu_access_token_tiktok" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('TIKTOK_ACCESS_TOKEN')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-TIKTOK_ACCESS_TOKEN">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">TIKTOK_REFRESH_TOKEN</div><div class="field-desc">Refresh Token (válido 1 ano)</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="TIKTOK_REFRESH_TOKEN" placeholder="seu_refresh_token_tiktok" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('TIKTOK_REFRESH_TOKEN')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-TIKTOK_REFRESH_TOKEN">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">TIKTOK_ADVERTISER_ORBE</div><div class="field-desc">ID do anunciante Orbe Pet</div></div>
+          <div class="field-input-wrap">
+            <input type="text" class="field-input" id="TIKTOK_ADVERTISER_ORBE" placeholder="123456789" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('TIKTOK_ADVERTISER_ORBE')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-TIKTOK_ADVERTISER_ORBE">?</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GOOGLE -->
+    <div class="section" id="sec-google">
+      <div class="section-header">
+        <h2>🔍 Google Ads</h2>
+        <p>Jacometo + Orbe Pet · Google Ads API v17</p>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header">
+          <div class="fg-title">Google Ads API</div>
+          <a href="https://developers.google.com/google-ads/api/docs/get-started/dev-token" target="_blank" class="fg-link">Dev Token ↗</a>
+        </div>
+        <div class="field">
+          <div><div class="field-label">GOOGLE_ADS_DEVELOPER_TOKEN</div><div class="field-desc">Developer Token da conta MCC</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="GOOGLE_ADS_DEVELOPER_TOKEN" placeholder="dev_token" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('GOOGLE_ADS_DEVELOPER_TOKEN')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-GOOGLE_ADS_DEVELOPER_TOKEN">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">GOOGLE_ADS_REFRESH_JACOMETO</div><div class="field-desc">OAuth2 Refresh Token Jacometo</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="GOOGLE_ADS_REFRESH_JACOMETO" placeholder="1//0e..." oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('GOOGLE_ADS_REFRESH_JACOMETO')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-GOOGLE_ADS_REFRESH_JACOMETO">?</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ELEVENLABS -->
+    <div class="section" id="sec-elevenlabs">
+      <div class="section-header">
+        <h2>🎙️ ElevenLabs</h2>
+        <p>Voz bidirecional · TTS + STT · elevenlabs.io</p>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header">
+          <div class="fg-title">🎙️ ElevenLabs API</div>
+          <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" class="fg-link">API Keys ↗</a>
+        </div>
+        <div class="field">
+          <div><div class="field-label">ELEVENLABS_API_KEY</div><div class="field-desc">Profile → API Keys</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="ELEVENLABS_API_KEY" placeholder="sk_..." oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('ELEVENLABS_API_KEY')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-ELEVENLABS_API_KEY">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">ELEVENLABS_VOICE_JARVIS</div><div class="field-desc">Voice ID escolhido para o Jarvis</div></div>
+          <div class="field-input-wrap">
+            <input type="text" class="field-input" id="ELEVENLABS_VOICE_JARVIS" placeholder="pNInz6obpgDQGcFmaJgB" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('ELEVENLABS_VOICE_JARVIS')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-ELEVENLABS_VOICE_JARVIS">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">ELEVENLABS_TTS_MODEL</div><div class="field-desc">Modelo de síntese de voz</div></div>
+          <div class="field-input-wrap">
+            <input type="text" class="field-input filled" id="ELEVENLABS_TTS_MODEL" value="eleven_multilingual_v2" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('ELEVENLABS_TTS_MODEL')">👁</button>
+          </div>
+          <div class="fstatus ok" id="fs-ELEVENLABS_TTS_MODEL">✓</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">ELEVENLABS_STT_MODEL</div><div class="field-desc">Modelo de transcrição</div></div>
+          <div class="field-input-wrap">
+            <input type="text" class="field-input filled" id="ELEVENLABS_STT_MODEL" value="scribe_v2" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('ELEVENLABS_STT_MODEL')">👁</button>
+          </div>
+          <div class="fstatus ok" id="fs-ELEVENLABS_STT_MODEL">✓</div>
+        </div>
+      </div>
+      <p style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);margin-top:8px;">
+        💡 Para descobrir o Voice ID: rode <code style="color:var(--cyan)">node -e "import('./src/voice.js').then(async m => console.log(await m.listarVozes()))"</code>
+      </p>
+    </div>
+
+    <!-- SEARCH -->
+    <div class="section" id="sec-search">
+      <div class="section-header">
+        <h2>🔍 Web Search</h2>
+        <p>Brave Search configurado · ativo como provedor padrão</p>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header">
+          <div class="fg-title">Brave Search ✅</div>
+          <a href="https://api.search.brave.com" target="_blank" class="fg-link">Dashboard ↗</a>
+        </div>
+        <div class="field">
+          <div><div class="field-label">BRAVE_SEARCH_API_KEY</div><div class="field-desc">✅ Já configurado</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input filled" id="BRAVE_SEARCH_API_KEY" placeholder="••••••••••••••••" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('BRAVE_SEARCH_API_KEY')">👁</button>
+          </div>
+          <div class="fstatus ok" id="fs-BRAVE_SEARCH_API_KEY">✓</div>
+        </div>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header">
+          <div class="fg-title">Tavily (opcional · melhor para IA)</div>
+          <a href="https://app.tavily.com" target="_blank" class="fg-link">app.tavily.com ↗</a>
+        </div>
+        <div class="field">
+          <div><div class="field-label">TAVILY_API_KEY</div><div class="field-desc">1.000 consultas grátis/mês</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="TAVILY_API_KEY" placeholder="tvly-..." oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('TAVILY_API_KEY')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-TAVILY_API_KEY">?</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PLAYWRIGHT -->
+    <div class="section" id="sec-playwright">
+      <div class="section-header">
+        <h2>🎭 Playwright — Credenciais dos Sites</h2>
+        <p>Quiver PRO · ATM · NDN · Seguradoras · Saúde</p>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header">
+          <div class="fg-title">Quiver PRO</div>
+          <a href="https://quiver.com.br" target="_blank" class="fg-link">quiver.com.br ↗</a>
+        </div>
+        <div class="field">
+          <div><div class="field-label">QUIVER_USER</div><div class="field-desc">Email de login</div></div>
+          <div class="field-input-wrap">
+            <input type="text" class="field-input" id="QUIVER_USER" placeholder="email@jacometo.com.br" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('QUIVER_USER')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-QUIVER_USER">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">QUIVER_PASS</div><div class="field-desc">Senha do Quiver PRO</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="QUIVER_PASS" placeholder="••••••••" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('QUIVER_PASS')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-QUIVER_PASS">?</div>
+        </div>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header"><div class="fg-title">ATM Seguros</div></div>
+        <div class="field">
+          <div><div class="field-label">ATM_USER</div></div>
+          <div class="field-input-wrap"><input type="text" class="field-input" id="ATM_USER" placeholder="login ATM" oninput="updateField(this)"><button class="toggle-vis" onclick="toggleVis('ATM_USER')">👁</button></div>
+          <div class="fstatus empty" id="fs-ATM_USER">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">ATM_PASS</div></div>
+          <div class="field-input-wrap"><input type="password" class="field-input" id="ATM_PASS" placeholder="••••••••" oninput="updateField(this)"><button class="toggle-vis" onclick="toggleVis('ATM_PASS')">👁</button></div>
+          <div class="fstatus empty" id="fs-ATM_PASS">?</div>
+        </div>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header"><div class="fg-title">NDN Seguros</div></div>
+        <div class="field">
+          <div><div class="field-label">NDN_USER</div></div>
+          <div class="field-input-wrap"><input type="text" class="field-input" id="NDN_USER" placeholder="login NDN" oninput="updateField(this)"><button class="toggle-vis" onclick="toggleVis('NDN_USER')">👁</button></div>
+          <div class="fstatus empty" id="fs-NDN_USER">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">NDN_PASS</div></div>
+          <div class="field-input-wrap"><input type="password" class="field-input" id="NDN_PASS" placeholder="••••••••" oninput="updateField(this)"><button class="toggle-vis" onclick="toggleVis('NDN_PASS')">👁</button></div>
+          <div class="fstatus empty" id="fs-NDN_PASS">?</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ARQUIVO -->
+    <div class="section" id="sec-arquivo">
+      <div class="section-header">
+        <h2>⚙️ Agente ARQUIVO</h2>
+        <p>ferramentas.jacometo.com.br · Mac Mini Jarvis</p>
+      </div>
+      <div class="field-group">
+        <div class="field-group-header">
+          <div class="fg-title">⚙️ Mac Mini Jarvis API</div>
+          <a href="https://ferramentas.jacometo.com.br" target="_blank" class="fg-link">ferramentas ↗</a>
+        </div>
+        <div class="field">
+          <div><div class="field-label">ARQUIVO_URL</div><div class="field-desc">URL da plataforma</div></div>
+          <div class="field-input-wrap">
+            <input type="text" class="field-input filled" id="ARQUIVO_URL" value="https://ferramentas.jacometo.com.br" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('ARQUIVO_URL')">👁</button>
+          </div>
+          <div class="fstatus ok" id="fs-ARQUIVO_URL">✓</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">ARQUIVO_TOKEN</div><div class="field-desc">API Key do projeto ferramentas</div></div>
+          <div class="field-input-wrap">
+            <input type="password" class="field-input" id="ARQUIVO_TOKEN" placeholder="token_do_projeto" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('ARQUIVO_TOKEN')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-ARQUIVO_TOKEN">?</div>
+        </div>
+        <div class="field">
+          <div><div class="field-label">ARQUIVO_SHARED_DIR</div><div class="field-desc">Pasta compartilhada entre os Mac Minis</div></div>
+          <div class="field-input-wrap">
+            <input type="text" class="field-input" id="ARQUIVO_SHARED_DIR" placeholder="/Volumes/JarvisShared/clawd/out" oninput="updateField(this)">
+            <button class="toggle-vis" onclick="toggleVis('ARQUIVO_SHARED_DIR')">👁</button>
+          </div>
+          <div class="fstatus empty" id="fs-ARQUIVO_SHARED_DIR">?</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GERAR .env -->
+    <div class="section" id="sec-envfile">
+      <div class="section-header">
+        <h2>📄 Gerar .env</h2>
+        <p>Copie o conteúdo abaixo e cole no arquivo .env do projeto</p>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="gerarEnv()">⚡ Gerar .env Agora</button>
+        <button class="btn btn-ghost" onclick="showSection('overview', document.querySelector('[onclick*=overview]'))">← Voltar ao Checklist</button>
+      </div>
+
+      <div style="position:relative;">
+        <pre class="env-output" id="env-output">Clique em "Gerar .env Agora" para gerar o arquivo...</pre>
+        <button class="copy-btn" onclick="copiarEnv()">COPIAR</button>
+      </div>
+
+      <div style="margin-top:16px;padding:14px;background:var(--s2);border:1px solid rgba(255,149,0,0.2);border-radius:8px;">
+        <p style="font-family:'DM Mono',monospace;font-size:10px;color:var(--orange);">
+          ⚠️ SEGURANÇA: Este arquivo contém credenciais sensíveis.<br>
+          1. Nunca commitar o .env no Git<br>
+          2. Verificar se .gitignore contém ".env"<br>
+          3. Esta página processa tudo localmente — nenhum dado é enviado para servidores
+        </p>
+      </div>
+
+      <div style="margin-top:12px;padding:14px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;">
+        <p style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:8px;">Comando para aplicar no Mac Mini 2:</p>
+        <code style="font-family:'DM Mono',monospace;font-size:11px;color:var(--cyan);">
+          pbpaste > ~/jarvis-claude/.env
+        </code>
+        <p style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);margin-top:6px;">
+          (copia o conteúdo do clipboard direto para o arquivo)
+        </p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<div class="toast" id="toast">✅ Copiado!</div>
+
+<script>
+// ── ESTADO ────────────────────────────────────────────────────────────────────
+const campos = [
+  'TELEGRAM_TOKEN','ALLOWED_USER_IDS','ANTHROPIC_API_KEY','CLAUDE_MODEL',
+  'PIPEDRIVE_COMPANY_DOMAIN','PIPEDRIVE_TOKEN_JACOMETO',
+  'CHATWOOT_TOKEN_JACOMETO','CHATWOOT_SECRET_JACOMETO',
+  'CHATWOOT_TOKEN_ORBE','CHATWOOT_SECRET_ORBE',
+  'META_APP_TOKEN_JACOMETO','META_AD_ACCOUNT_JACOMETO',
+  'META_APP_TOKEN_ORBE','META_AD_ACCOUNT_ORBE',
+  'TIKTOK_ACCESS_TOKEN','TIKTOK_REFRESH_TOKEN','TIKTOK_ADVERTISER_ORBE',
+  'GOOGLE_ADS_DEVELOPER_TOKEN','GOOGLE_ADS_REFRESH_JACOMETO',
+  'ELEVENLABS_API_KEY','ELEVENLABS_VOICE_JARVIS','ELEVENLABS_TTS_MODEL','ELEVENLABS_STT_MODEL',
+  'BRAVE_SEARCH_API_KEY','TAVILY_API_KEY',
+  'QUIVER_USER','QUIVER_PASS','ATM_USER','ATM_PASS','NDN_USER','NDN_PASS',
+  'ARQUIVO_URL','ARQUIVO_TOKEN','ARQUIVO_SHARED_DIR',
+];
+
+const obrigatorios = [
+  'TELEGRAM_TOKEN','ALLOWED_USER_IDS','ANTHROPIC_API_KEY',
+  'PIPEDRIVE_TOKEN_JACOMETO','META_APP_TOKEN_JACOMETO','META_AD_ACCOUNT_JACOMETO',
+  'ELEVENLABS_API_KEY','BRAVE_SEARCH_API_KEY',
+];
+
+// ── NAVEGAÇÃO ─────────────────────────────────────────────────────────────────
+function showSection(id, el) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('sec-'+id).classList.add('active');
+  if (el) el.classList.add('active');
+}
+
+// ── CAMPO ─────────────────────────────────────────────────────────────────────
+function updateField(input) {
+  const id = input.id;
+  const fs = document.getElementById('fs-'+id);
+  if (!fs) return;
+
+  if (input.value.trim()) {
+    input.classList.add('filled');
+    fs.textContent = '✓';
+    fs.className = 'fstatus ok';
+  } else {
+    input.classList.remove('filled');
+    fs.textContent = '?';
+    fs.className = 'fstatus empty';
+  }
+
+  updateProgress();
+  updateNavStatus();
+}
+
+function toggleVis(id) {
+  const inp = document.getElementById(id);
+  if (!inp) return;
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+// ── PROGRESSO ─────────────────────────────────────────────────────────────────
+function updateProgress() {
+  const preenchidos = obrigatorios.filter(id => {
+    const el = document.getElementById(id);
+    return el && el.value.trim();
+  }).length;
+
+  const pct = Math.round((preenchidos / obrigatorios.length) * 100);
+  document.getElementById('progress').style.width = pct + '%';
+  document.getElementById('progress-pct').textContent = pct + '%';
+  document.getElementById('sum-pct').textContent = pct + '%';
+
+  const totalPreenchidos = campos.filter(id => {
+    const el = document.getElementById(id);
+    return el && el.value.trim();
+  }).length;
+
+  document.getElementById('sum-ok').textContent   = totalPreenchidos;
+  document.getElementById('sum-total').textContent = campos.length;
+  document.getElementById('sum-warn').textContent  = campos.length - totalPreenchidos;
+}
+
+function updateNavStatus() {
+  const map = {
+    'ns-telegram':    ['TELEGRAM_TOKEN','ALLOWED_USER_IDS'],
+    'ns-anthropic':   ['ANTHROPIC_API_KEY'],
+    'ns-pipedrive':   ['PIPEDRIVE_TOKEN_JACOMETO'],
+    'ns-chatwoot':    ['CHATWOOT_TOKEN_JACOMETO','CHATWOOT_TOKEN_ORBE'],
+    'ns-meta':        ['META_APP_TOKEN_JACOMETO','META_APP_TOKEN_ORBE'],
+    'ns-tiktok':      ['TIKTOK_ACCESS_TOKEN','TIKTOK_REFRESH_TOKEN'],
+    'ns-google':      ['GOOGLE_ADS_DEVELOPER_TOKEN'],
+    'ns-elevenlabs':  ['ELEVENLABS_API_KEY','ELEVENLABS_VOICE_JARVIS'],
+    'ns-search':      ['BRAVE_SEARCH_API_KEY'],
+    'ns-playwright':  ['QUIVER_USER','QUIVER_PASS'],
+    'ns-arquivo':     ['ARQUIVO_TOKEN'],
+  };
+
+  for (const [nsId, ids] of Object.entries(map)) {
+    const el = document.getElementById(nsId);
+    if (!el) continue;
+    const allOk = ids.every(id => { const e = document.getElementById(id); return e && e.value.trim(); });
+    const anyOk = ids.some(id => { const e = document.getElementById(id); return e && e.value.trim(); });
+    el.className = 'nav-status ' + (allOk ? 'ns-ok' : anyOk ? 'ns-warn' : 'ns-err');
+  }
+}
+
+// ── GERAR .env ────────────────────────────────────────────────────────────────
+function val(id) {
+  const el = document.getElementById(id);
+  return el ? el.value.trim() : '';
+}
+
+function gerarEnv() {
+  const linhas = [
+    `# ═══════════════════════════════════════════════════════════════`,
+    `# JARVIS OS — .env gerado em ${new Date().toLocaleDateString('pt-BR')}`,
+    `# ═══════════════════════════════════════════════════════════════`,
+    ``,
+    `# ── TELEGRAM ────────────────────────────────────────────────────`,
+    `TELEGRAM_TOKEN=${val('TELEGRAM_TOKEN')||'SEU_TOKEN_AQUI'}`,
+    `ALLOWED_USER_IDS=${val('ALLOWED_USER_IDS')||'SEU_ID_AQUI'}`,
+    ``,
+    `# ── CLAUDE API ───────────────────────────────────────────────────`,
+    `ANTHROPIC_API_KEY=${val('ANTHROPIC_API_KEY')||'SEU_KEY_AQUI'}`,
+    `CLAUDE_MODEL=${val('CLAUDE_MODEL')||'claude-sonnet-4-6'}`,
+    ``,
+    `# ── PIPEDRIVE ─────────────────────────────────────────────────────`,
+    `PIPEDRIVE_COMPANY_DOMAIN=${val('PIPEDRIVE_COMPANY_DOMAIN')||'jacometo'}`,
+    `PIPEDRIVE_TOKEN_JACOMETO=${val('PIPEDRIVE_TOKEN_JACOMETO')||''}`,
+    `PIPEDRIVE_DOMAIN_JACOMETO=jacometo`,
+    ``,
+    `# ── CHATWOOT JACOMETO ─────────────────────────────────────────────`,
+    `CHATWOOT_URL_JACOMETO=https://crm.jacometo.com.br`,
+    `CHATWOOT_TOKEN_JACOMETO=${val('CHATWOOT_TOKEN_JACOMETO')||''}`,
+    `CHATWOOT_ACCOUNT_JACOMETO=1`,
+    `CHATWOOT_SECRET_JACOMETO=${val('CHATWOOT_SECRET_JACOMETO')||''}`,
+    `INBOX_JACO_WA=1`,
+    `INBOX_JACO_SITE=2`,
+    `INBOX_JACO_IG=3`,
+    ``,
+    `# ── CHATWOOT ORBE PET ─────────────────────────────────────────────`,
+    `CHATWOOT_URL_ORBE=https://crm.orbepet.com.br`,
+    `CHATWOOT_TOKEN_ORBE=${val('CHATWOOT_TOKEN_ORBE')||''}`,
+    `CHATWOOT_ACCOUNT_ORBE=1`,
+    `CHATWOOT_SECRET_ORBE=${val('CHATWOOT_SECRET_ORBE')||''}`,
+    `INBOX_ORBE_WA=1`,
+    `INBOX_ORBE_SITE=2`,
+    `INBOX_ORBE_IG=3`,
+    `INBOX_ORBE_TT=4`,
+    ``,
+    `# ── META ADS JACOMETO ─────────────────────────────────────────────`,
+    `META_APP_TOKEN_JACOMETO=${val('META_APP_TOKEN_JACOMETO')||''}`,
+    `META_AD_ACCOUNT_JACOMETO=${val('META_AD_ACCOUNT_JACOMETO')||''}`,
+    ``,
+    `# ── META ADS ORBE PET ─────────────────────────────────────────────`,
+    `META_APP_TOKEN_ORBE=${val('META_APP_TOKEN_ORBE')||''}`,
+    `META_AD_ACCOUNT_ORBE=${val('META_AD_ACCOUNT_ORBE')||'act_596420432003943'}`,
+    ``,
+    `# ── TIKTOK ADS (ORBE PET) ─────────────────────────────────────────`,
+    `TIKTOK_ACCESS_TOKEN=${val('TIKTOK_ACCESS_TOKEN')||''}`,
+    `TIKTOK_REFRESH_TOKEN=${val('TIKTOK_REFRESH_TOKEN')||''}`,
+    `TIKTOK_ADVERTISER_ORBE=${val('TIKTOK_ADVERTISER_ORBE')||''}`,
+    ``,
+    `# ── GOOGLE ADS ────────────────────────────────────────────────────`,
+    `GOOGLE_ADS_DEVELOPER_TOKEN=${val('GOOGLE_ADS_DEVELOPER_TOKEN')||''}`,
+    `GOOGLE_ADS_REFRESH_JACOMETO=${val('GOOGLE_ADS_REFRESH_JACOMETO')||''}`,
+    ``,
+    `# ── ELEVENLABS ────────────────────────────────────────────────────`,
+    `ELEVENLABS_API_KEY=${val('ELEVENLABS_API_KEY')||''}`,
+    `ELEVENLABS_VOICE_JARVIS=${val('ELEVENLABS_VOICE_JARVIS')||'pNInz6obpgDQGcFmaJgB'}`,
+    `ELEVENLABS_TTS_MODEL=${val('ELEVENLABS_TTS_MODEL')||'eleven_multilingual_v2'}`,
+    `ELEVENLABS_STT_MODEL=${val('ELEVENLABS_STT_MODEL')||'scribe_v2'}`,
+    `AUDIO_DIR=./out/audio`,
+    ``,
+    `# ── WEB SEARCH ────────────────────────────────────────────────────`,
+    `BRAVE_SEARCH_API_KEY=${val('BRAVE_SEARCH_API_KEY')||''}`,
+    `TAVILY_API_KEY=${val('TAVILY_API_KEY')||''}`,
+    ``,
+    `# ── PLAYWRIGHT / SITES ────────────────────────────────────────────`,
+    `PLAYWRIGHT_HEADLESS=true`,
+    `PLAYWRIGHT_SESSIONS_DIR=~/.jarvis/sessions`,
+    `PLAYWRIGHT_SCREENSHOTS_DIR=./out/screenshots`,
+    `PLAYWRIGHT_DOWNLOADS_DIR=./out/downloads`,
+    `QUIVER_USER=${val('QUIVER_USER')||''}`,
+    `QUIVER_PASS=${val('QUIVER_PASS')||''}`,
+    `ATM_URL=https://www.atmseguros.com.br`,
+    `ATM_USER=${val('ATM_USER')||''}`,
+    `ATM_PASS=${val('ATM_PASS')||''}`,
+    `NDN_URL=https://www.ndnseguros.com.br`,
+    `NDN_USER=${val('NDN_USER')||''}`,
+    `NDN_PASS=${val('NDN_PASS')||''}`,
+    ``,
+    `# ── AGENTE ARQUIVO (MAC MINI JARVIS) ──────────────────────────────`,
+    `ARQUIVO_URL=${val('ARQUIVO_URL')||'https://ferramentas.jacometo.com.br'}`,
+    `ARQUIVO_TOKEN=${val('ARQUIVO_TOKEN')||''}`,
+    `ARQUIVO_SHARED_DIR=${val('ARQUIVO_SHARED_DIR')||''}`,
+    `WEBHOOK_PORT=3001`,
+    ``,
+    `# ── OUTPUTS ───────────────────────────────────────────────────────`,
+    `OUT_DIR_META=./out/meta`,
+    `OUT_DIR_GERENTE=./out/gerente`,
+    `MEMORY_DB_PATH=./memory/jarvis.db`,
+  ];
+
+  const content = linhas.join('\n');
+  document.getElementById('env-output').textContent = content;
+  showToast('✅ .env gerado! Clique em COPIAR.');
+}
+
+function copiarEnv() {
+  const text = document.getElementById('env-output').textContent;
+  navigator.clipboard.writeText(text).then(() => showToast('✅ Copiado para o clipboard!'));
+}
+
+// ── CHECKLIST ─────────────────────────────────────────────────────────────────
+function toggleCheck(el) {
+  el.classList.toggle('done');
+  el.querySelector('.check-box').textContent = el.classList.contains('done') ? '✓' : '';
+}
+
+// ── TOAST ─────────────────────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+// Marca campos pré-preenchidos como ok
+document.querySelectorAll('.field-input.filled').forEach(inp => {
+  const fs = document.getElementById('fs-'+inp.id);
+  if (fs) { fs.textContent='✓'; fs.className='fstatus ok'; }
+});
+
+updateProgress();
+updateNavStatus();
+</script>
+</body>
+</html>

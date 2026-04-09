@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS — Agent Kanban</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #07090c;
+  --s1:       #0d1117;
+  --s2:       #111820;
+  --border:   #1c2a38;
+  --border2:  #243040;
+  --text:     #d4e8f4;
+  --muted:    #4a6a7a;
+  --dim:      #2a4050;
+
+  --cyan:   #00d4ff;
+  --green:  #00ff9d;
+  --orange: #ff9500;
+  --red:    #ff3b30;
+  --purple: #bf5af2;
+  --gold:   #ffd60a;
+
+  /* modelos */
+  --opus:   #bf5af2;
+  --sonnet: #00d4ff;
+  --haiku:  #00ff9d;
+
+  /* colunas */
+  --col-backlog:   #1a2535;
+  --col-doing:     #1a2520;
+  --col-review:    #25201a;
+  --col-done:      #161f2a;
+  --col-blocked:   #251a1a;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Syne', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* noise overlay */
+body::after {
+  content:'';
+  position:fixed;
+  inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events:none;
+  z-index:999;
+  opacity:0.4;
+}
+
+/* ── HEADER ── */
+header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 28px;
+  border-bottom:1px solid var(--border);
+  background: var(--s1);
+  position:sticky; top:0; z-index:100;
+}
+.logo { display:flex; align-items:center; gap:14px; }
+.logo-mark {
+  width:36px; height:36px;
+  border:1.5px solid var(--cyan);
+  border-radius:8px;
+  display:flex; align-items:center; justify-content:center;
+  font-family:'DM Mono',monospace; font-size:13px; font-weight:500;
+  color:var(--cyan);
+  box-shadow:0 0 16px rgba(0,212,255,0.25);
+  animation:pulse 3s ease infinite;
+}
+@keyframes pulse { 0%,100%{box-shadow:0 0 16px rgba(0,212,255,0.25);} 50%{box-shadow:0 0 28px rgba(0,212,255,0.5);} }
+.logo h1 { font-size:15px; font-weight:800; letter-spacing:4px; color:var(--cyan); text-transform:uppercase; }
+.logo p  { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); letter-spacing:2px; }
+
+.header-actions { display:flex; align-items:center; gap:12px; }
+.hbtn {
+  font-family:'DM Mono',monospace; font-size:9px; letter-spacing:1px;
+  padding:6px 14px; border-radius:5px; border:1px solid var(--border);
+  background:var(--s2); color:var(--muted); cursor:pointer;
+  transition:all 0.2s;
+}
+.hbtn:hover { border-color:var(--cyan); color:var(--cyan); }
+.hbtn.active { border-color:var(--cyan); color:var(--cyan); background:rgba(0,212,255,0.08); }
+
+.status-dot { display:flex; align-items:center; gap:6px; font-family:'DM Mono',monospace; font-size:9px; color:var(--green); }
+.dot { width:6px; height:6px; border-radius:50%; background:var(--green); box-shadow:0 0 6px var(--green); animation:blink 2s ease infinite; }
+@keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+/* ── SKILL CARDS TOPO ── */
+.skills-section {
+  padding:20px 28px 0;
+  border-bottom:1px solid var(--border);
+  background:var(--s1);
+}
+.skills-header {
+  display:flex; align-items:center; justify-content:space-between;
+  margin-bottom:14px;
+}
+.section-title {
+  font-family:'DM Mono',monospace; font-size:9px; letter-spacing:3px;
+  color:var(--muted); text-transform:uppercase;
+  display:flex; align-items:center; gap:8px;
+}
+.section-title::before { content:''; width:20px; height:1px; background:var(--border2); }
+
+.skills-scroll {
+  display:flex; gap:10px;
+  overflow-x:auto; padding-bottom:16px;
+  scrollbar-width:thin; scrollbar-color:var(--border) transparent;
+}
+.skills-scroll::-webkit-scrollbar { height:3px; }
+.skills-scroll::-webkit-scrollbar-thumb { background:var(--border2); border-radius:3px; }
+
+.skill-card {
+  flex-shrink:0;
+  width:200px;
+  background:var(--s2);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:14px;
+  cursor:pointer;
+  transition:all 0.2s;
+  position:relative;
+  overflow:hidden;
+}
+.skill-card::before {
+  content:'';
+  position:absolute; top:0; left:0; right:0; height:2px;
+  background:var(--cyan);
+  opacity:0.6;
+}
+.skill-card.opus::before   { background:var(--opus); }
+.skill-card.sonnet::before { background:var(--sonnet); }
+.skill-card.haiku::before  { background:var(--haiku); }
+.skill-card.multi::before  { background:linear-gradient(90deg,var(--opus),var(--sonnet),var(--haiku)); }
+
+.skill-card:hover {
+  border-color:var(--border2);
+  transform:translateY(-2px);
+  box-shadow:0 8px 24px rgba(0,0,0,0.4);
+}
+
+.skill-icon { font-size:20px; margin-bottom:8px; }
+.skill-name { font-size:13px; font-weight:700; color:var(--text); margin-bottom:4px; }
+.skill-desc { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); line-height:1.5; }
+.skill-footer { display:flex; align-items:center; justify-content:space-between; margin-top:10px; }
+.skill-model {
+  font-family:'DM Mono',monospace; font-size:8px; padding:2px 6px;
+  border-radius:3px; letter-spacing:1px;
+}
+.model-opus   { background:rgba(191,90,242,0.15); color:var(--opus); }
+.model-sonnet { background:rgba(0,212,255,0.1);   color:var(--sonnet); }
+.model-haiku  { background:rgba(0,255,157,0.1);   color:var(--haiku); }
+.model-multi  { background:rgba(255,255,255,0.05); color:var(--muted); }
+
+.skill-status {
+  font-family:'DM Mono',monospace; font-size:8px;
+  display:flex; align-items:center; gap:4px;
+}
+.ss-dot { width:5px; height:5px; border-radius:50%; }
+.ss-ok     { background:var(--green); box-shadow:0 0 4px var(--green); }
+.ss-setup  { background:var(--orange); }
+.ss-build  { background:var(--purple); animation:blink 1.5s infinite; }
+
+/* ── KANBAN ── */
+.kanban-wrap { padding:24px 28px; overflow-x:auto; }
+.kanban {
+  display:grid;
+  grid-template-columns: repeat(5, minmax(280px,1fr));
+  gap:12px;
+  min-width:1200px;
+}
+
+.column {
+  border-radius:12px;
+  border:1px solid var(--border);
+  overflow:hidden;
+  display:flex; flex-direction:column;
+}
+.col-header {
+  padding:14px 16px;
+  display:flex; align-items:center; justify-content:space-between;
+  border-bottom:1px solid var(--border);
+}
+.col-header.backlog  { background:rgba(26,37,53,0.8); }
+.col-header.doing    { background:rgba(0,212,255,0.06); border-bottom-color:rgba(0,212,255,0.15); }
+.col-header.review   { background:rgba(255,149,0,0.06); border-bottom-color:rgba(255,149,0,0.15); }
+.col-header.done     { background:rgba(0,255,157,0.04); border-bottom-color:rgba(0,255,157,0.12); }
+.col-header.blocked  { background:rgba(255,59,48,0.06); border-bottom-color:rgba(255,59,48,0.15); }
+
+.col-title {
+  font-size:11px; font-weight:700; letter-spacing:2px;
+  text-transform:uppercase;
+  display:flex; align-items:center; gap:8px;
+}
+.col-title.backlog  { color:var(--muted); }
+.col-title.doing    { color:var(--cyan); }
+.col-title.review   { color:var(--orange); }
+.col-title.done     { color:var(--green); }
+.col-title.blocked  { color:var(--red); }
+
+.col-icon { font-size:14px; }
+.col-count {
+  font-family:'DM Mono',monospace; font-size:10px;
+  padding:2px 8px; border-radius:10px;
+  background:rgba(255,255,255,0.05); color:var(--muted);
+}
+
+.col-body {
+  padding:12px;
+  display:flex; flex-direction:column; gap:8px;
+  flex:1;
+  background:rgba(7,9,12,0.6);
+  min-height:200px;
+}
+
+/* ── TASK CARDS ── */
+.task {
+  background:var(--s2);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:12px;
+  cursor:grab;
+  transition:all 0.2s;
+  position:relative;
+  animation:slideIn 0.3s ease;
+}
+@keyframes slideIn { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:translateY(0);} }
+.task:hover { border-color:var(--border2); transform:translateY(-1px); box-shadow:0 6px 20px rgba(0,0,0,0.4); }
+.task:active { cursor:grabbing; }
+
+.task.priority-high::after {
+  content:'';
+  position:absolute; left:0; top:0; bottom:0; width:3px;
+  background:var(--red); border-radius:8px 0 0 8px;
+}
+.task.priority-med::after {
+  content:'';
+  position:absolute; left:0; top:0; bottom:0; width:3px;
+  background:var(--orange); border-radius:8px 0 0 8px;
+}
+.task.priority-low::after {
+  content:'';
+  position:absolute; left:0; top:0; bottom:0; width:3px;
+  background:var(--dim); border-radius:8px 0 0 8px;
+}
+
+.task-top { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:8px; }
+.task-title { font-size:12px; font-weight:600; line-height:1.4; color:var(--text); }
+.task-id { font-family:'DM Mono',monospace; font-size:8px; color:var(--muted); white-space:nowrap; margin-top:2px; }
+
+.task-desc { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); line-height:1.6; margin-bottom:10px; }
+
+.task-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px; }
+.task-tags { display:flex; gap:4px; flex-wrap:wrap; }
+.tag {
+  font-family:'DM Mono',monospace; font-size:8px; padding:2px 6px;
+  border-radius:3px; letter-spacing:0.5px;
+}
+.tag-pipe   { background:rgba(0,84,220,0.2);    color:#5eb8ff; }
+.tag-meta   { background:rgba(24,119,242,0.15); color:#7ab8ff; }
+.tag-tiktok { background:rgba(255,0,80,0.15);   color:#ff6090; }
+.tag-google { background:rgba(52,168,83,0.15);  color:#78e0a0; }
+.tag-crm    { background:rgba(255,149,0,0.15);  color:var(--orange); }
+.tag-ia     { background:rgba(191,90,242,0.15); color:var(--opus); }
+.tag-infra  { background:rgba(74,122,138,0.15); color:var(--muted); }
+.tag-orbe   { background:rgba(255,214,10,0.12); color:var(--gold); }
+.tag-kanban { background:rgba(0,212,255,0.1);   color:var(--cyan); }
+
+.task-agent {
+  display:flex; align-items:center; gap:5px;
+  font-family:'DM Mono',monospace; font-size:8px; color:var(--muted);
+}
+.agent-av-mini {
+  width:20px; height:20px; border-radius:4px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:8px; font-weight:700;
+}
+.av-opus   { background:rgba(191,90,242,0.15); color:var(--opus); }
+.av-sonnet { background:rgba(0,212,255,0.1);   color:var(--sonnet); }
+.av-haiku  { background:rgba(0,255,157,0.1);   color:var(--haiku); }
+
+/* ── DOING PULSE ── */
+.task.doing-active {
+  border-color:rgba(0,212,255,0.3);
+  box-shadow:0 0 16px rgba(0,212,255,0.08);
+}
+.task.doing-active .task-title { color:var(--cyan); }
+
+.progress-bar { height:2px; background:var(--border); border-radius:2px; margin-top:8px; overflow:hidden; }
+.progress-fill { height:100%; background:var(--cyan); border-radius:2px; transition:width 1s ease; }
+.progress-fill.orange { background:var(--orange); }
+
+/* ── ADD CARD ── */
+.add-card {
+  border:1px dashed var(--border);
+  border-radius:8px; padding:12px;
+  text-align:center;
+  font-family:'DM Mono',monospace; font-size:10px; color:var(--dim);
+  cursor:pointer; transition:all 0.2s;
+  letter-spacing:1px;
+}
+.add-card:hover { border-color:var(--border2); color:var(--muted); }
+
+/* ── MODAL SKILL ── */
+.modal-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,0.7);
+  z-index:500; display:flex; align-items:center; justify-content:center;
+  opacity:0; pointer-events:none; transition:opacity 0.2s;
+}
+.modal-overlay.open { opacity:1; pointer-events:all; }
+.modal {
+  background:var(--s1); border:1px solid var(--border2);
+  border-radius:14px; padding:28px; max-width:420px; width:90%;
+  transform:translateY(10px); transition:transform 0.2s;
+}
+.modal-overlay.open .modal { transform:translateY(0); }
+.modal-title { font-size:16px; font-weight:700; margin-bottom:6px; }
+.modal-sub   { font-family:'DM Mono',monospace; font-size:10px; color:var(--muted); margin-bottom:20px; }
+.modal-body  { font-family:'DM Mono',monospace; font-size:11px; color:var(--text); line-height:1.8; margin-bottom:20px; }
+.modal-close { display:flex; justify-content:flex-end; }
+.close-btn {
+  font-family:'DM Mono',monospace; font-size:10px; letter-spacing:1px;
+  padding:7px 16px; border-radius:5px; border:1px solid var(--border);
+  background:transparent; color:var(--muted); cursor:pointer; transition:all 0.2s;
+}
+.close-btn:hover { border-color:var(--red); color:var(--red); }
+
+/* ── DRAG OVER ── */
+.col-body.drag-over { background:rgba(0,212,255,0.04); border:1px dashed rgba(0,212,255,0.2); border-radius:8px; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <div class="logo-mark">J</div>
+    <div>
+      <h1>JARVIS</h1>
+      <p>Agent Kanban · Jacometo OS</p>
+    </div>
+  </div>
+  <div class="header-actions">
+    <div class="status-dot"><div class="dot"></div>8 AGENTES ONLINE</div>
+    <button class="hbtn active" onclick="filterAll()">TODOS</button>
+    <button class="hbtn" onclick="filterBy('meta')">META</button>
+    <button class="hbtn" onclick="filterBy('pipe')">PIPEDRIVE</button>
+    <button class="hbtn" onclick="filterBy('orbe')">ORBE PET</button>
+    <button class="hbtn" onclick="filterBy('ia')">IA INFRA</button>
+  </div>
+</header>
+
+<!-- SKILLS ROW -->
+<div class="skills-section">
+  <div class="skills-header">
+    <div class="section-title">Skills dos Agentes</div>
+    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);">12 skills · clique para detalhes</div>
+  </div>
+  <div class="skills-scroll" id="skills-scroll">
+
+    <div class="skill-card sonnet" onclick="showSkill('pipedrive')">
+      <div class="skill-icon">🔵</div>
+      <div class="skill-name">Pipedrive CRM</div>
+      <div class="skill-desc">Deals, funil, consistência, labels, notes, activities, webhooks</div>
+      <div class="skill-footer">
+        <span class="skill-model model-sonnet">SONNET</span>
+        <span class="skill-status"><span class="ss-dot ss-ok"></span>ATIVO</span>
+      </div>
+    </div>
+
+    <div class="skill-card multi" onclick="showSkill('meta')">
+      <div class="skill-icon">📘</div>
+      <div class="skill-name">Meta Ads (2 apps)</div>
+      <div class="skill-desc">Insights, campanhas, CPL, alerta gasto, Gap Meta×CRM — Jacometo + Orbe</div>
+      <div class="skill-footer">
+        <span class="skill-model model-sonnet">SONNET</span>
+        <span class="skill-status"><span class="ss-dot ss-setup"></span>TOKEN</span>
+      </div>
+    </div>
+
+    <div class="skill-card haiku" onclick="showSkill('tiktok')">
+      <div class="skill-icon">🎵</div>
+      <div class="skill-name">TikTok Ads Orbe</div>
+      <div class="skill-desc">Campanhas, insights, refresh token automático — Business API v1.3</div>
+      <div class="skill-footer">
+        <span class="skill-model model-haiku">HAIKU</span>
+        <span class="skill-status"><span class="ss-dot ss-setup"></span>TOKEN</span>
+      </div>
+    </div>
+
+    <div class="skill-card sonnet" onclick="showSkill('google')">
+      <div class="skill-icon">🔍</div>
+      <div class="skill-name">Google Ads Jaco</div>
+      <div class="skill-desc">Campanhas, keywords, conversões — Google Ads API v17 + OAuth2</div>
+      <div class="skill-footer">
+        <span class="skill-model model-sonnet">SONNET</span>
+        <span class="skill-status"><span class="ss-dot ss-build"></span>BUILD</span>
+      </div>
+    </div>
+
+    <div class="skill-card opus" onclick="showSkill('analisa')">
+      <div class="skill-icon">🧠</div>
+      <div class="skill-name">Analisa Negócios</div>
+      <div class="skill-desc">Cruzamento Meta×CRM×Pipedrive, GAP cobertura, relatório estratégico</div>
+      <div class="skill-footer">
+        <span class="skill-model model-opus">OPUS</span>
+        <span class="skill-status"><span class="ss-dot ss-ok"></span>ATIVO</span>
+      </div>
+    </div>
+
+    <div class="skill-card haiku" onclick="showSkill('atendimento')">
+      <div class="skill-icon">💬</div>
+      <div class="skill-name">Plataforma Atendimento</div>
+      <div class="skill-desc">Leads da Lovable, tickets, tempo resposta, nina/auto, GAP CRM</div>
+      <div class="skill-footer">
+        <span class="skill-model model-haiku">HAIKU</span>
+        <span class="skill-status"><span class="ss-dot ss-build"></span>BUILD</span>
+      </div>
+    </div>
+
+    <div class="skill-card haiku" onclick="showSkill('orbe')">
+      <div class="skill-icon">🐾</div>
+      <div class="skill-name">Orbe Pet / APet</div>
+      <div class="skill-desc">Planos ativados, cancelamentos, receita, painel Angelus</div>
+      <div class="skill-footer">
+        <span class="skill-model model-haiku">HAIKU</span>
+        <span class="skill-status"><span class="ss-dot ss-build"></span>BUILD</span>
+      </div>
+    </div>
+
+    <div class="skill-card multi" onclick="showSkill('memoria')">
+      <div class="skill-icon">💾</div>
+      <div class="skill-name">Memória Persistente</div>
+      <div class="skill-desc">SQLite por usuário, histórico 100 msgs, contexto global, facts store</div>
+      <div class="skill-footer">
+        <span class="skill-model model-multi">TODOS</span>
+        <span class="skill-status"><span class="ss-dot ss-ok"></span>ATIVO</span>
+      </div>
+    </div>
+
+    <div class="skill-card multi" onclick="showSkill('router')">
+      <div class="skill-icon">⚡</div>
+      <div class="skill-name">Router de Modelos</div>
+      <div class="skill-desc">Auto-detecção Opus/Sonnet/Haiku por tipo de tarefa + estimativa de custo</div>
+      <div class="skill-footer">
+        <span class="skill-model model-multi">AUTO</span>
+        <span class="skill-status"><span class="ss-dot ss-ok"></span>ATIVO</span>
+      </div>
+    </div>
+
+    <div class="skill-card multi" onclick="showSkill('crons')">
+      <div class="skill-icon">⏰</div>
+      <div class="skill-name">Cron Jobs (13)</div>
+      <div class="skill-desc">Briefing 8h, alertas, relatórios automáticos, checks — horário Brasília</div>
+      <div class="skill-footer">
+        <span class="skill-model model-multi">TODOS</span>
+        <span class="skill-status"><span class="ss-dot ss-ok"></span>ATIVO</span>
+      </div>
+    </div>
+
+    <div class="skill-card sonnet" onclick="showSkill('telegram')">
+      <div class="skill-icon">✈️</div>
+      <div class="skill-name">Telegram Bot</div>
+      <div class="skill-desc">@jarvisclaude · polling, autorização por ID, comandos /start /briefing /custo</div>
+      <div class="skill-footer">
+        <span class="skill-model model-sonnet">SONNET</span>
+        <span class="skill-status"><span class="ss-dot ss-build"></span>CONFIG</span>
+      </div>
+    </div>
+
+    <div class="skill-card opus" onclick="showSkill('missioncontrol')">
+      <div class="skill-icon">🚀</div>
+      <div class="skill-name">Mission Control</div>
+      <div class="skill-desc">Dashboard tempo real, log de atividade, checklist auditoria, pendências OK</div>
+      <div class="skill-footer">
+        <span class="skill-model model-opus">OPUS</span>
+        <span class="skill-status"><span class="ss-dot ss-ok"></span>ATIVO</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- KANBAN -->
+<div class="kanban-wrap">
+  <div class="kanban">
+
+    <!-- BACKLOG -->
+    <div class="column">
+      <div class="col-header backlog">
+        <div class="col-title backlog"><span class="col-icon">📋</span>Backlog</div>
+        <div class="col-count" id="count-backlog">0</div>
+      </div>
+      <div class="col-body" id="col-backlog" ondragover="dragOver(event)" ondrop="drop(event,'backlog')">
+
+        <div class="task priority-med" draggable="true" ondragstart="dragStart(event)" data-tags="google,ia">
+          <div class="task-top">
+            <div><div class="task-title">Google Ads — OAuth2 Setup</div><div class="task-id">#009 · Google Ads</div></div>
+          </div>
+          <div class="task-desc">Configurar OAuth2 + refresh token para Google Ads API v17. Conta Jacometo.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-google">Google</span><span class="tag tag-infra">OAuth</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-sonnet">GJ</div>Agente Google</div>
+          </div>
+        </div>
+
+        <div class="task priority-med" draggable="true" ondragstart="dragStart(event)" data-tags="orbe,meta">
+          <div class="task-top">
+            <div><div class="task-title">Google Ads Orbe Pet — Integração</div><div class="task-id">#010 · Google Orbe</div></div>
+          </div>
+          <div class="task-desc">Mapear campanhas Google da Orbe Pet e integrar insights no relatório diário.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-orbe">Orbe</span><span class="tag tag-google">Google</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-sonnet">GJ</div>Agente Google</div>
+          </div>
+        </div>
+
+        <div class="task priority-low" draggable="true" ondragstart="dragStart(event)" data-tags="orbe">
+          <div class="task-top">
+            <div><div class="task-title">APet/Angelus — Mapear API</div><div class="task-id">#011 · Orbe Pet</div></div>
+          </div>
+          <div class="task-desc">Documentar endpoints disponíveis da plataforma APet para planos Orbe Pet.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-orbe">Orbe Pet</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-haiku">AT</div>Atendimento</div>
+          </div>
+        </div>
+
+        <div class="task priority-low" draggable="true" ondragstart="dragStart(event)" data-tags="pipe,ia">
+          <div class="task-top">
+            <div><div class="task-title">Webhooks Pipedrive — Novo Deal</div><div class="task-id">#012 · Pipedrive</div></div>
+          </div>
+          <div class="task-desc">Registrar webhook para receber evento em tempo real quando novo deal entra. Notificar Jarvis imediatamente.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-pipe">Pipedrive</span><span class="tag tag-infra">Webhook</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-sonnet">PJ</div>Ag. Pipedrive</div>
+          </div>
+        </div>
+
+        <div class="task priority-low" draggable="true" ondragstart="dragStart(event)" data-tags="ia">
+          <div class="task-top">
+            <div><div class="task-title">WebSocket Mission Control</div><div class="task-id">#013 · Infra</div></div>
+          </div>
+          <div class="task-desc">Integrar backend Node.js ao dashboard via WebSocket para dados 100% reais em tempo real.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-infra">Infra</span><span class="tag tag-kanban">Dashboard</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-opus">J</div>Jarvis Hub</div>
+          </div>
+        </div>
+
+        <div class="task priority-low" draggable="true" ondragstart="dragStart(event)" data-tags="ia">
+          <div class="task-top">
+            <div><div class="task-title">Follow-up cadência D+1/D+3/D+7</div><div class="task-id">#014 · CRM</div></div>
+          </div>
+          <div class="task-desc">Automatizar cadência de follow-up por deal com rascunhos e activities no Pipedrive.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-pipe">Pipedrive</span><span class="tag tag-crm">CRM</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-opus">AN</div>Analisa Neg.</div>
+          </div>
+        </div>
+
+        <div class="add-card" onclick="addCard('backlog')">+ Nova tarefa</div>
+      </div>
+    </div>
+
+    <!-- EM ANDAMENTO -->
+    <div class="column">
+      <div class="col-header doing">
+        <div class="col-title doing"><span class="col-icon">⚡</span>Em Andamento</div>
+        <div class="col-count" id="count-doing">0</div>
+      </div>
+      <div class="col-body" id="col-doing" ondragover="dragOver(event)" ondrop="drop(event,'doing')">
+
+        <div class="task doing-active priority-high" draggable="true" ondragstart="dragStart(event)" data-tags="ia">
+          <div class="task-top">
+            <div><div class="task-title">Jarvis Claude — Setup Mac Mini 2</div><div class="task-id">#001 · Infra</div></div>
+          </div>
+          <div class="task-desc">Instalar Claude Code, configurar .env, npm install, testar bot Telegram.</div>
+          <div class="progress-bar"><div class="progress-fill" style="width:65%"></div></div>
+          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--cyan);margin-top:4px;">65% concluído</div>
+          <div class="task-footer" style="margin-top:8px;">
+            <div class="task-tags"><span class="tag tag-infra">Infra</span><span class="tag tag-ia">IA</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-opus">J</div>Jarvis Hub</div>
+          </div>
+        </div>
+
+        <div class="task doing-active priority-high" draggable="true" ondragstart="dragStart(event)" data-tags="meta">
+          <div class="task-top">
+            <div><div class="task-title">Meta Ads — Tokens dos 2 Apps</div><div class="task-id">#002 · Meta</div></div>
+          </div>
+          <div class="task-desc">Gerar access tokens com permissão ads_read nos dois apps (Jacometo + Orbe) e configurar .env.</div>
+          <div class="progress-bar"><div class="progress-fill orange" style="width:30%"></div></div>
+          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--orange);margin-top:4px;">30% · aguardando tokens</div>
+          <div class="task-footer" style="margin-top:8px;">
+            <div class="task-tags"><span class="tag tag-meta">Meta</span><span class="tag tag-infra">OAuth</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-sonnet">MJ</div>Meta Jaco</div>
+          </div>
+        </div>
+
+        <div class="task doing-active priority-high" draggable="true" ondragstart="dragStart(event)" data-tags="meta,orbe">
+          <div class="task-top">
+            <div><div class="task-title">Meta Ads Orbe — Token + Test</div><div class="task-id">#003 · Meta Orbe</div></div>
+          </div>
+          <div class="task-desc">Configurar token do App Orbe Pet, validar conta act_596420432003943, testar insights.</div>
+          <div class="progress-bar"><div class="progress-fill orange" style="width:20%"></div></div>
+          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--orange);margin-top:4px;">20% · token pendente</div>
+          <div class="task-footer" style="margin-top:8px;">
+            <div class="task-tags"><span class="tag tag-meta">Meta</span><span class="tag tag-orbe">Orbe Pet</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-sonnet">MO</div>Meta Orbe</div>
+          </div>
+        </div>
+
+        <div class="task doing-active priority-med" draggable="true" ondragstart="dragStart(event)" data-tags="pipe">
+          <div class="task-top">
+            <div><div class="task-title">Pipedrive API v2 — Teste Real</div><div class="task-id">#004 · Pipedrive</div></div>
+          </div>
+          <div class="task-desc">Testar módulo pipedrive.js com a API key real. Validar deals, atividades e consistência CRM.</div>
+          <div class="progress-bar"><div class="progress-fill" style="width:50%"></div></div>
+          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--cyan);margin-top:4px;">50% · key configurada</div>
+          <div class="task-footer" style="margin-top:8px;">
+            <div class="task-tags"><span class="tag tag-pipe">Pipedrive</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-sonnet">PJ</div>Ag. Pipedrive</div>
+          </div>
+        </div>
+
+        <div class="add-card" onclick="addCard('doing')">+ Nova tarefa</div>
+      </div>
+    </div>
+
+    <!-- REVISÃO / OK -->
+    <div class="column">
+      <div class="col-header review">
+        <div class="col-title review"><span class="col-icon">👁</span>Revisão / OK</div>
+        <div class="col-count" id="count-review">0</div>
+      </div>
+      <div class="col-body" id="col-review" ondragover="dragOver(event)" ondrop="drop(event,'review')">
+
+        <div class="task priority-high" draggable="true" ondragstart="dragStart(event)" data-tags="meta">
+          <div class="task-top">
+            <div><div class="task-title">Meta Jaco — Pausar campanha "Carga PR"</div><div class="task-id">#005 · Meta · ⚠️ OK PENDENTE</div></div>
+          </div>
+          <div class="task-desc">CPL R$89 — acima do limite. Sugestão: pausar e realocar R$50/dia para "Transportadoras SP". Aguardando aprovação do Adriano.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-meta">Meta</span><span class="tag tag-crm">OK Required</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-sonnet">MJ</div>Ag. Meta Jaco</div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:10px;">
+            <button style="flex:1;font-family:'DM Mono',monospace;font-size:8px;padding:5px;border-radius:4px;border:1px solid var(--green);background:rgba(0,255,157,0.08);color:var(--green);cursor:pointer;" onclick="moveTask(this,'done')">✓ APROVAR</button>
+            <button style="flex:1;font-family:'DM Mono',monospace;font-size:8px;padding:5px;border-radius:4px;border:1px solid var(--red);background:rgba(255,59,48,0.08);color:var(--red);cursor:pointer;" onclick="moveTask(this,'blocked')">✗ NEGAR</button>
+          </div>
+        </div>
+
+        <div class="task priority-med" draggable="true" ondragstart="dragStart(event)" data-tags="pipe">
+          <div class="task-top">
+            <div><div class="task-title">Pipedrive — Labels vazios (3 deals)</div><div class="task-id">#006 · Pipedrive · ⚠️ OK PENDENTE</div></div>
+          </div>
+          <div class="task-desc">Detectados 3 deals sem label. Jarvis quer aplicar label pelo owner_id. Aguarda OK para executar update.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-pipe">Pipedrive</span><span class="tag tag-crm">Labels</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-sonnet">PJ</div>Ag. Pipedrive</div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:10px;">
+            <button style="flex:1;font-family:'DM Mono',monospace;font-size:8px;padding:5px;border-radius:4px;border:1px solid var(--green);background:rgba(0,255,157,0.08);color:var(--green);cursor:pointer;" onclick="moveTask(this,'done')">✓ APROVAR</button>
+            <button style="flex:1;font-family:'DM Mono',monospace;font-size:8px;padding:5px;border-radius:4px;border:1px solid var(--red);background:rgba(255,59,48,0.08);color:var(--red);cursor:pointer;" onclick="moveTask(this,'blocked')">✗ NEGAR</button>
+          </div>
+        </div>
+
+        <div class="add-card" onclick="addCard('review')">+ Nova tarefa</div>
+      </div>
+    </div>
+
+    <!-- CONCLUÍDO -->
+    <div class="column">
+      <div class="col-header done">
+        <div class="col-title done"><span class="col-icon">✓</span>Concluído</div>
+        <div class="col-count" id="count-done">0</div>
+      </div>
+      <div class="col-body" id="col-done" ondragover="dragOver(event)" ondrop="drop(event,'done')">
+
+        <div class="task" draggable="true" ondragstart="dragStart(event)" data-tags="ia" style="opacity:0.7;">
+          <div class="task-top">
+            <div><div class="task-title">Arquitetura Jarvis OS definida</div><div class="task-id">#000 · Infra · ✓</div></div>
+          </div>
+          <div class="task-desc">Stack definida: Node.js + Claude API + SQLite + Telegram + pm2. 8 agentes mapeados.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-ia">IA</span><span class="tag tag-infra">Arquitetura</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-opus">J</div>Jarvis Hub</div>
+          </div>
+        </div>
+
+        <div class="task" draggable="true" ondragstart="dragStart(event)" data-tags="ia,pipe" style="opacity:0.7;">
+          <div class="task-top">
+            <div><div class="task-title">Módulo Pipedrive API v2 codado</div><div class="task-id">#007 · Pipedrive · ✓</div></div>
+          </div>
+          <div class="task-desc">pipedrive.js completo com deals, activities, notes, labels, webhooks, relatório diário.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-pipe">Pipedrive</span><span class="tag tag-ia">IA</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-sonnet">PJ</div>Ag. Pipedrive</div>
+          </div>
+        </div>
+
+        <div class="task" draggable="true" ondragstart="dragStart(event)" data-tags="meta,ia" style="opacity:0.7;">
+          <div class="task-top">
+            <div><div class="task-title">Módulo Meta Marketing API codado</div><div class="task-id">#008 · Meta · ✓</div></div>
+          </div>
+          <div class="task-desc">meta.js com insights, campanhas, top/piores CPL, alerta gasto, Gap CRM, relatório 14d.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-meta">Meta</span><span class="tag tag-ia">IA</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-sonnet">MJ</div>Meta Jaco</div>
+          </div>
+        </div>
+
+        <div class="task" draggable="true" ondragstart="dragStart(event)" data-tags="ia,kanban" style="opacity:0.7;">
+          <div class="task-top">
+            <div><div class="task-title">Mission Control Dashboard v2</div><div class="task-id">#015 · Dashboard · ✓</div></div>
+          </div>
+          <div class="task-desc">Dashboard com 8 agentes, 13 crons, log ao vivo, checklist auditoria, regras Jarvis.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-kanban">Dashboard</span><span class="tag tag-ia">IA</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-opus">J</div>Jarvis Hub</div>
+          </div>
+        </div>
+
+        <div class="task" draggable="true" ondragstart="dragStart(event)" data-tags="ia" style="opacity:0.7;">
+          <div class="task-top">
+            <div><div class="task-title">Router Opus/Sonnet/Haiku</div><div class="task-id">#016 · IA Infra · ✓</div></div>
+          </div>
+          <div class="task-desc">Roteamento automático de modelo por tipo de mensagem + estimativa de custo em USD/BRL.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-ia">IA</span><span class="tag tag-infra">Router</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-opus">J</div>Jarvis Hub</div>
+          </div>
+        </div>
+
+        <div class="task" draggable="true" ondragstart="dragStart(event)" data-tags="ia" style="opacity:0.7;">
+          <div class="task-top">
+            <div><div class="task-title">Cron Jobs 13 tasks configurados</div><div class="task-id">#017 · Crons · ✓</div></div>
+          </div>
+          <div class="task-desc">Briefing 8h, check 12h, alertas Meta 9h/14h, leads +48h 7h, resumo Orbe 20h + mais.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-ia">IA</span><span class="tag tag-infra">Crons</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-haiku">AT</div>Haiku</div>
+          </div>
+        </div>
+
+        <div class="add-card" onclick="addCard('done')">+ Marcar concluído</div>
+      </div>
+    </div>
+
+    <!-- BLOQUEADO -->
+    <div class="column">
+      <div class="col-header blocked">
+        <div class="col-title blocked"><span class="col-icon">🔴</span>Bloqueado</div>
+        <div class="col-count" id="count-blocked">0</div>
+      </div>
+      <div class="col-body" id="col-blocked" ondragover="dragOver(event)" ondrop="drop(event,'blocked')">
+
+        <div class="task priority-high" draggable="true" ondragstart="dragStart(event)" data-tags="ia">
+          <div class="task-top">
+            <div><div class="task-title">TikTok — Refresh Token Expirado</div><div class="task-id">#018 · TikTok · 🔴 BLOQUEADO</div></div>
+          </div>
+          <div class="task-desc">TIKTOK_REFRESH_TOKEN expirou ou não foi configurado. Token válido por 24h, refresh por 1 ano. Precisa reautenticar.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-tiktok">TikTok</span><span class="tag tag-infra">Auth</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-haiku">TO</div>TikTok Orbe</div>
+          </div>
+        </div>
+
+        <div class="task priority-med" draggable="true" ondragstart="dragStart(event)" data-tags="orbe">
+          <div class="task-top">
+            <div><div class="task-title">Lovable — URL/Webhook não configurado</div><div class="task-id">#019 · Atendimento · 🔴 BLOQUEADO</div></div>
+          </div>
+          <div class="task-desc">URL da plataforma de atendimento não definida no .env. Precisamos da URL base + API key para integrar GAP CRM.</div>
+          <div class="task-footer">
+            <div class="task-tags"><span class="tag tag-crm">CRM</span><span class="tag tag-orbe">Atendimento</span></div>
+            <div class="task-agent"><div class="agent-av-mini av-haiku">AT</div>Atendimento</div>
+          </div>
+        </div>
+
+        <div class="add-card" onclick="addCard('blocked')">+ Registrar bloqueio</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODAL SKILL -->
+<div class="modal-overlay" id="modal" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-title" id="modal-title"></div>
+    <div class="modal-sub"  id="modal-sub"></div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-close"><button class="close-btn" onclick="closeModal()">FECHAR ✕</button></div>
+  </div>
+</div>
+
+<script>
+// ── DADOS DAS SKILLS ──────────────────────────────────────────────────────────
+const SKILLS = {
+  pipedrive: {
+    title: '🔵 Pipedrive CRM',
+    sub:   'SONNET · API v2 oficial · src/pipedrive.js',
+    body:  `Endpoints ativos:
+• GET /api/v2/deals — todos os deals com paginação cursor
+• Deals de hoje, sem atividade +48h, valor=0, sem label
+• Funil por estágio, atividade por vendedor
+• POST /api/v2/activities — com regra cobrança (user 15830108)
+• POST /api/v1/notes — evidência de inconsistência
+• PATCH /api/v2/deals — update label (enum validado)
+• Webhooks — eventos em tempo real
+• Relatório diário → out/pipedrive/YYYY-MM-DD.md`
+  },
+  meta: {
+    title: '📘 Meta Ads Marketing API',
+    sub:   'SONNET · Graph API v21.0 · src/meta.js',
+    body:  `Dois apps separados:
+• App Jacometo → act_JACOMETO
+• App Orbe Pet → act_596420432003943
+
+Endpoints:
+• act_ID/insights — gasto, leads, CPL, CTR, CPM, alcance
+• act_ID/campaigns + insights inline — por período
+• Top/piores campanhas por CPL
+• Alerta gasto >80% orçamento diário
+• Gap Meta×CRM — conversas vs inbounds
+• Relatório 14d → out/meta/meta_YYYY-MM-DD.md
+• Verificação de tokens dos dois apps`
+  },
+  tiktok: {
+    title: '🎵 TikTok Ads Business API',
+    sub:   'HAIKU · Business API v1.3 · src/tiktok.js',
+    body:  `Status: TOKEN PENDENTE
+
+Endpoints mapeados:
+• /campaign/get/ — lista campanhas Orbe Pet
+• /adgroup/get/ — grupos de anúncio
+• /report/integrated/get/ — insights: spend, clicks, CPL, CTR
+• Refresh token automático (token expira em 24h)
+
+Requer:
+• Criar app em business-api.tiktok.com
+• Autorizar conta Orbe Pet
+• TIKTOK_ACCESS_TOKEN + TIKTOK_REFRESH_TOKEN no .env`
+  },
+  google: {
+    title: '🔍 Google Ads API',
+    sub:   'SONNET · Google Ads API v17 · src/google.js',
+    body:  `Status: EM BUILD — OAuth2 pendente
+
+Endpoints planejados:
+• campaigns — lista campanhas Jacometo
+• metrics.cost_micros, clicks, conversions
+• GAQL queries personalizadas
+• Relatório por período
+
+Requer:
+• Google Cloud Console → OAuth2 credentials
+• Developer token aprovado
+• GOOGLE_ADS_REFRESH_TOKEN no .env`
+  },
+  analisa: {
+    title: '🧠 Analisa Negócios',
+    sub:   'OPUS · Cruzamento de dados · cron 18:00',
+    body:  `O agente mais poderoso — usa Opus para análise estratégica.
+
+Cruza:
+• Meta Ads (leads, CPL, gasto) × Pipedrive (deals, funil)
+• Gap cobertura Meta → CRM → Pipedrive
+• Vendedor com mais leads vs. menos conversão
+• Campanhas com melhor ROI vs. leads que viram deals
+• Recomendações de ação (2 opções + escolha)
+
+Regra SOUL.md:
+→ Nunca sugere ação sem evidência em arquivo de output
+→ Sempre aponta link do deal ou relatório`
+  },
+  atendimento: {
+    title: '💬 Plataforma Atendimento',
+    sub:   'HAIKU · Lovable/CRM · src/atendimento.js',
+    body:  `Status: EM BUILD — URL pendente
+
+Monitora:
+• Leads que chegam via Meta/Google → plataforma
+• chat_status=nina (auto-resposta ativa)
+• Tempo de resposta por lead
+• GAP: leads que não viraram inbound no CRM
+
+Integra com:
+• Meta Ads — conversas iniciadas
+• Pipedrive — deals criados por source
+• Calcula cobertura e eficiência de atendimento`
+  },
+  orbe: {
+    title: '🐾 Orbe Pet / APet',
+    sub:   'HAIKU · APet/Angelus API · src/orbe.js',
+    body:  `Status: EM BUILD — API pendente
+
+Monitora:
+• Novos planos ativados por dia
+• Cancelamentos e motivos
+• Receita recorrente (MRR)
+• Planos: Órbita Essencial R$37,62 | Plus R$89,82 | Total R$107,82 | Galáxia R$138,32
+
+Cruza com:
+• Meta Ads Orbe — custo por plano ativado
+• TikTok — leads vs. ativações
+• Google — performance por campanha`
+  },
+  memoria: {
+    title: '💾 Memória Persistente',
+    sub:   'TODOS OS MODELOS · SQLite · src/memory.js',
+    body:  `Implementação:
+• SQLite com better-sqlite3 (sync, rápido)
+• Tabela messages — histórico por user_id (100 msgs max)
+• Tabela user_context — nome, role, last_seen
+• Tabela jarvis_memory — facts globais (key/value)
+
+Funções:
+• getHistory(userId, 20) — últimas 20 mensagens
+• saveMessage(userId, role, content)
+• rememberFact(key, value) — memória global
+• recallFact(key) — recupera fato salvo`
+  },
+  router: {
+    title: '⚡ Router de Modelos',
+    sub:   'AUTO · Detecção por keywords · src/router.js',
+    body:  `Lógica de roteamento:
+• OPUS → estratégia, sinistro, jurídico, análise, decisão
+• SONNET → leads, vendas, relatório, Meta, campanha, funil
+• HAIKU → oi, status, gasto hoje, check rápido, crons
+
+Custo estimado em tempo real:
+• OPUS:   $15/M input | $75/M output
+• SONNET: $3/M input  | $15/M output
+• HAIKU:  $0.8/M input | $4/M output
+
+Max tokens: Haiku=1024 | Sonnet/Opus=4096`
+  },
+  crons: {
+    title: '⏰ Cron Jobs (13 tasks)',
+    sub:   'TODOS · Horário Brasília (UTC-3) · src/crons.js',
+    body:  `07:00 HAIKU  — Leads sem atividade +48h
+08:00 SONNET — Briefing diário completo
+08:30 SONNET — Meta Jaco relatório 14d
+08:35 SONNET — Meta Orbe relatório 14d
+09:00 SONNET — Pipedrive consistência CRM
+09:00 HAIKU  — Alerta Meta Ads (gasto)
+10:00 OPUS   — Meta × CRM GAP cobertura
+12:00 HAIKU  — Check leads meio-dia
+14:00 HAIKU  — Alerta Meta Ads (gasto)
+14:30 HAIKU  — TikTok Orbe check API
+17:30 SONNET — Resumo do dia
+18:00 OPUS   — Analisa Negócios cruzamento
+20:00 SONNET — Resumo Orbe Pet`
+  },
+  telegram: {
+    title: '✈️ Telegram Bot @jarvisclaude',
+    sub:   'node-telegram-bot-api · src/index.js',
+    body:  `Comandos:
+• /start    — apresentação + inicia crons
+• /status   — modelos, integrações, crons ativos
+• /briefing — relatório completo agora
+• /custo    — custo USD/BRL da sessão
+• [livre]   — pergunta ao Jarvis (auto-roteamento)
+
+Segurança:
+• ALLOWED_USER_IDS no .env
+• Rejeita mensagens de IDs não autorizados
+
+Status: CONFIG — precisa de TELEGRAM_TOKEN`
+  },
+  missioncontrol: {
+    title: '🚀 Mission Control Dashboard',
+    sub:   'HTML puro · jarvis-mission-control-v2.html',
+    body:  `Painéis ativos:
+• 6 métricas em tempo real (leads, Meta, GAP, custo)
+• 8 agentes com status online/idle/busy/erro
+• 13 cron jobs com status de execução
+• Log de atividade ao vivo com modelo + custo
+• Integrações com status OK/SETUP/ERRO
+• Custo por modelo com barra visual
+• Regras críticas do SOUL.md sempre visíveis
+• Checklist diário de auditoria (5 itens)
+• Pendências aguardando OK com botão Aprovar/Negar`
+  }
+};
+
+// ── MODAL ─────────────────────────────────────────────────────────────────────
+function showSkill(id) {
+  const s = SKILLS[id];
+  if (!s) return;
+  document.getElementById('modal-title').textContent = s.title;
+  document.getElementById('modal-sub').textContent   = s.sub;
+  document.getElementById('modal-body').textContent  = s.body;
+  document.getElementById('modal').classList.add('open');
+}
+
+function closeModal(e) {
+  if (!e || e.target === document.getElementById('modal')) {
+    document.getElementById('modal').classList.remove('open');
+  }
+}
+
+// ── DRAG & DROP ───────────────────────────────────────────────────────────────
+let dragged = null;
+
+function dragStart(e) {
+  dragged = e.currentTarget;
+  e.currentTarget.style.opacity = '0.5';
+}
+
+document.addEventListener('dragend', e => {
+  if (dragged) dragged.style.opacity = '';
+  dragged = null;
+  document.querySelectorAll('.col-body').forEach(c => c.classList.remove('drag-over'));
+});
+
+function dragOver(e) {
+  e.preventDefault();
+  e.currentTarget.classList.add('drag-over');
+}
+
+function drop(e, colId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  if (dragged) {
+    const addBtn = e.currentTarget.querySelector('.add-card');
+    e.currentTarget.insertBefore(dragged, addBtn);
+    dragged.style.opacity = '';
+
+    // Remove/add doing-active class
+    dragged.classList.remove('doing-active');
+    if (colId === 'doing') dragged.classList.add('doing-active');
+
+    updateCounts();
+  }
+}
+
+// ── APROVAR/NEGAR ─────────────────────────────────────────────────────────────
+function moveTask(btn, dest) {
+  const task = btn.closest('.task');
+  const col  = document.getElementById('col-' + dest);
+  const addBtn = col.querySelector('.add-card');
+  col.insertBefore(task, addBtn);
+  task.style.opacity = dest === 'done' ? '0.7' : '1';
+  task.classList.remove('doing-active');
+  btn.closest('div[style]').remove();
+  updateCounts();
+}
+
+// ── ADD CARD ──────────────────────────────────────────────────────────────────
+function addCard(colId) {
+  const title = prompt('Título da tarefa:');
+  if (!title) return;
+  const col    = document.getElementById('col-' + colId);
+  const addBtn = col.querySelector('.add-card');
+  const task   = document.createElement('div');
+  task.className   = 'task priority-low';
+  task.draggable   = true;
+  task.setAttribute('data-tags', 'ia');
+  task.ondragstart = e => dragStart(e);
+  task.innerHTML   = `
+    <div class="task-top">
+      <div><div class="task-title">${title}</div><div class="task-id">#NEW · Manual</div></div>
+    </div>
+    <div class="task-desc">Tarefa criada manualmente.</div>
+    <div class="task-footer">
+      <div class="task-tags"><span class="tag tag-ia">Manual</span></div>
+      <div class="task-agent"><div class="agent-av-mini av-opus">J</div>Jarvis</div>
+    </div>`;
+  col.insertBefore(task, addBtn);
+  updateCounts();
+}
+
+// ── FILTROS ───────────────────────────────────────────────────────────────────
+let activeFilter = null;
+
+function filterAll() {
+  activeFilter = null;
+  document.querySelectorAll('.task').forEach(t => t.style.display = '');
+  document.querySelectorAll('.hbtn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.hbtn')[0].classList.add('active');
+}
+
+function filterBy(tag) {
+  activeFilter = tag;
+  document.querySelectorAll('.task').forEach(t => {
+    const tags = t.getAttribute('data-tags') || '';
+    t.style.display = tags.includes(tag) ? '' : 'none';
+  });
+  document.querySelectorAll('.hbtn').forEach(b => b.classList.remove('active'));
+}
+
+// ── CONTAGENS ─────────────────────────────────────────────────────────────────
+function updateCounts() {
+  ['backlog','doing','review','done','blocked'].forEach(col => {
+    const tasks = document.getElementById('col-' + col)
+      .querySelectorAll('.task').length;
+    document.getElementById('count-' + col).textContent = tasks;
+  });
+}
+
+// Boot
+updateCounts();
+</script>
+</body>
+</html>

@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS — Mission Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:      #020608;
+    --surface: #060d12;
+    --panel:   #0a1520;
+    --border:  #0f2535;
+    --accent:  #00d4ff;
+    --green:   #00ff9d;
+    --warn:    #ff9500;
+    --danger:  #ff3b30;
+    --opus:    #bf5af2;
+    --sonnet:  #00d4ff;
+    --haiku:   #00ff9d;
+    --text:    #c8e6f0;
+    --muted:   #4a7a8a;
+    --glow:    0 0 20px rgba(0,212,255,0.3);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'Rajdhani',sans-serif; min-height:100vh; overflow-x:hidden; }
+  body::before { content:''; position:fixed; inset:0; background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,212,255,0.012) 2px,rgba(0,212,255,0.012) 4px); pointer-events:none; z-index:1000; }
+
+  /* ── HEADER ── */
+  header { display:flex; align-items:center; justify-content:space-between; padding:14px 24px; border-bottom:1px solid var(--border); background:var(--surface); position:sticky; top:0; z-index:100; }
+  .logo { display:flex; align-items:center; gap:14px; }
+  .logo-icon { width:40px; height:40px; border:2px solid var(--accent); border-radius:8px; display:flex; align-items:center; justify-content:center; font-family:'Orbitron',monospace; font-size:14px; font-weight:900; color:var(--accent); box-shadow:var(--glow),inset 0 0 12px rgba(0,212,255,0.1); animation:pulse-border 3s ease infinite; }
+  @keyframes pulse-border { 0%,100%{box-shadow:var(--glow),inset 0 0 12px rgba(0,212,255,0.1);}50%{box-shadow:0 0 30px rgba(0,212,255,0.5),inset 0 0 20px rgba(0,212,255,0.2);} }
+  .logo-text h1 { font-family:'Orbitron',monospace; font-size:17px; font-weight:900; color:var(--accent); letter-spacing:4px; }
+  .logo-text p { font-family:'Share Tech Mono',monospace; font-size:9px; color:var(--muted); letter-spacing:2px; }
+  .header-right { display:flex; align-items:center; gap:20px; }
+  .status-pill { display:flex; align-items:center; gap:6px; font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--green); letter-spacing:1px; background:rgba(0,255,157,0.08); padding:5px 12px; border-radius:20px; border:1px solid rgba(0,255,157,0.2); }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 8px var(--green); animation:blink 2s ease infinite; }
+  @keyframes blink { 0%,100%{opacity:1;}50%{opacity:0.3;} }
+  .clock { font-family:'Orbitron',monospace; font-size:18px; font-weight:700; color:var(--text); letter-spacing:2px; }
+
+  /* ── LAYOUT ── */
+  .grid { display:grid; grid-template-columns:450px 1fr 450px; gap:1px; background:var(--border); min-height:calc(100vh - 69px); }
+  .panel { background:var(--panel); padding:18px; }
+  .ptitle { font-family:'Share Tech Mono',monospace; font-size:9px; letter-spacing:3px; color:var(--muted); text-transform:uppercase; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+  .ptitle::after { content:''; flex:1; height:1px; background:var(--border); }
+
+  /* ── MÉTRICAS TOPO ── */
+  .metrics-row { grid-column:1/-1; display:grid; grid-template-columns:repeat(6,1fr); gap:1px; background:var(--border); }
+  .metric { background:var(--panel); padding:16px 18px; position:relative; overflow:hidden; cursor:default; }
+  .metric::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; }
+  .metric.blue::before   { background:var(--accent); }
+  .metric.green::before  { background:var(--green); }
+  .metric.orange::before { background:var(--warn); }
+  .metric.purple::before { background:var(--opus); }
+  .metric.red::before    { background:var(--danger); }
+  .metric-label { font-family:'Share Tech Mono',monospace; font-size:8px; letter-spacing:2px; color:var(--muted); text-transform:uppercase; margin-bottom:6px; }
+  .metric-value { font-family:'Orbitron',monospace; font-size:26px; font-weight:700; line-height:1; }
+  .metric.blue .metric-value   { color:var(--accent); }
+  .metric.green .metric-value  { color:var(--green); }
+  .metric.orange .metric-value { color:var(--warn); }
+  .metric.purple .metric-value { color:var(--opus); }
+  .metric-sub { font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--muted); margin-top:4px; }
+  .delta-up   { color:var(--green); }
+  .delta-down { color:var(--danger); }
+
+  /* ── SIDEBAR ESQUERDA ── */
+  .sidebar-left { display:flex; flex-direction:column; gap:1px; background:var(--border); }
+
+  /* ── AGENTES ── */
+  .agent-list { display:flex; flex-direction:column; gap:6px; }
+  .agent { display:flex; align-items:center; gap:10px; padding:9px 11px; border:1px solid var(--border); border-radius:6px; background:var(--surface); transition:border-color 0.2s; }
+  .agent:hover { border-color:rgba(0,212,255,0.3); }
+  .agent-av { width:34px; height:34px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; flex-shrink:0; }
+  .av-opus   { background:rgba(191,90,242,0.15); color:var(--opus);   border:1px solid rgba(191,90,242,0.3); }
+  .av-sonnet { background:rgba(0,212,255,0.1);   color:var(--sonnet); border:1px solid rgba(0,212,255,0.2); }
+  .av-haiku  { background:rgba(0,255,157,0.1);   color:var(--haiku);  border:1px solid rgba(0,255,157,0.2); }
+  .agent-info { flex:1; min-width:0; }
+  .agent-name { font-size:12px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .agent-role { font-family:'Share Tech Mono',monospace; font-size:8px; color:var(--muted); letter-spacing:1px; }
+  .agent-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+  .ad-on   { background:var(--green); box-shadow:0 0 6px var(--green); }
+  .ad-idle { background:var(--muted); }
+  .ad-busy { background:var(--warn); box-shadow:0 0 6px var(--warn); animation:blink 1s infinite; }
+  .ad-err  { background:var(--danger); box-shadow:0 0 6px var(--danger); }
+
+  /* ── CRONS ── */
+  .cron-list { display:flex; flex-direction:column; gap:5px; }
+  .cron-item { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:4px; background:var(--surface); font-family:'Share Tech Mono',monospace; font-size:10px; }
+  .cron-time { color:var(--accent); width:36px; flex-shrink:0; }
+  .cron-name { color:var(--text); flex:1; font-size:9px; }
+  .cron-badge { font-size:8px; padding:2px 5px; border-radius:3px; flex-shrink:0; }
+  .cb-haiku  { background:rgba(0,255,157,0.1);   color:var(--haiku);  }
+  .cb-sonnet { background:rgba(0,212,255,0.1);   color:var(--sonnet); }
+  .cb-opus   { background:rgba(191,90,242,0.15); color:var(--opus);   }
+  .cron-status { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+  .cs-ok   { background:var(--green); }
+  .cs-late { background:var(--warn); animation:blink 1s infinite; }
+  .cs-idle { background:var(--muted); }
+
+  /* ── CENTRO ── */
+  .center { display:flex; flex-direction:column; background:var(--panel); }
+  .log-wrap { flex:1; overflow-y:auto; max-height:480px; padding:10px 0; }
+  .log-wrap::-webkit-scrollbar { width:3px; }
+  .log-wrap::-webkit-scrollbar-thumb { background:var(--border); }
+  .log-entry { display:grid; grid-template-columns:98px 78px 1fr 1000px; gap:12px; align-items:start; padding:9px 18px; font-family:'Share Tech Mono',monospace; font-size:14px; transition:background 0.15s; animation:fadeIn 0.3s ease; border-bottom:1px solid rgba(15,37,53,0.5); }
+  .log-entry:hover { background:rgba(0,212,255,0.03); }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(-3px);}to{opacity:1;transform:translateY(0);} }
+  .log-time { color:var(--muted); }
+  .lm { font-size:10px; padding:2px 6px; border-radius:3px; text-align:center; margin-top:1px; }
+  .lm-opus   { background:rgba(191,90,242,0.15); color:var(--opus); }
+  .lm-sonnet { background:rgba(0,212,255,0.1);   color:var(--sonnet); }
+  .lm-haiku  { background:rgba(0,255,157,0.1);   color:var(--haiku); }
+  .lm-cron   { background:rgba(255,149,0,0.1);   color:var(--warn); }
+  .lm-sys    { background:rgba(74,122,138,0.15); color:var(--muted); }
+  .log-msg { color:var(--text); line-height:1.5; }
+  .log-msg .source { color:var(--accent); }
+  .log-msg .warn   { color:var(--warn); }
+  .log-msg .ok     { color:var(--green); }
+  .log-msg .err    { color:var(--danger); }
+  .log-cost { color:var(--muted); text-align:right; font-size:11px; }
+
+  /* ── INPUT ── */
+  .input-area { padding:14px 16px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
+  .model-row { display:flex; gap:5px; align-items:center; }
+  .mbtn { padding:5px 10px; border:1px solid var(--border); border-radius:4px; background:var(--surface); font-family:'Share Tech Mono',monospace; font-size:8px; cursor:pointer; color:var(--muted); transition:all 0.2s; letter-spacing:1px; }
+  .mbtn:hover { border-color:var(--accent); color:var(--text); }
+  .mbtn.active.opus   { border-color:var(--opus);   color:var(--opus);   background:rgba(191,90,242,0.1); }
+  .mbtn.active.sonnet { border-color:var(--sonnet); color:var(--sonnet); background:rgba(0,212,255,0.1); }
+  .mbtn.active.haiku  { border-color:var(--haiku);  color:var(--haiku);  background:rgba(0,255,157,0.1); }
+  .mbtn.active.auto   { border-color:var(--accent);  color:var(--accent);  background:rgba(0,212,255,0.08); }
+  .sep { font-family:'Share Tech Mono',monospace; font-size:8px; color:var(--muted); margin:0 2px; }
+  .send-row { display:flex; gap:8px; }
+  .jinput { flex:1; background:var(--surface); border:1px solid var(--border); border-radius:5px; color:var(--text); font-family:'Share Tech Mono',monospace; font-size:12px; padding:9px 12px; outline:none; transition:border-color 0.2s,box-shadow 0.2s; resize:none; min-height:38px; max-height:100px; }
+  .jinput:focus { border-color:var(--accent); box-shadow:0 0 10px rgba(0,212,255,0.12); }
+  .jinput::placeholder { color:var(--muted); }
+  .sbtn { padding:9px 18px; background:rgba(0,212,255,0.1); border:1px solid var(--accent); border-radius:5px; color:var(--accent); font-family:'Orbitron',monospace; font-size:10px; font-weight:700; letter-spacing:2px; cursor:pointer; transition:all 0.2s; }
+  .sbtn:hover { background:rgba(0,212,255,0.2); box-shadow:var(--glow); }
+
+  /* ── SIDEBAR DIREITA ── */
+  .sidebar-right { display:flex; flex-direction:column; gap:1px; background:var(--border); }
+
+  /* ── INTEGRAÇÕES ── */
+  .int-list { display:flex; flex-direction:column; gap:5px; }
+  .int-item { display:flex; align-items:center; gap:9px; padding:9px 10px; background:var(--surface); border-radius:4px; border-left:3px solid transparent; }
+  .int-item.ok   { border-left-color:var(--green); }
+  .int-item.warn { border-left-color:var(--warn); }
+  .int-item.err  { border-left-color:var(--danger); }
+  .int-icon { font-size:16px; flex-shrink:0; }
+  .int-info { flex:1; min-width:0; }
+  .int-name { font-size:12px; font-weight:600; }
+  .int-stat { font-family:'Share Tech Mono',monospace; font-size:9px; color:var(--muted); }
+  .badge { font-family:'Share Tech Mono',monospace; font-size:8px; padding:2px 6px; border-radius:3px; }
+  .badge-ok   { background:rgba(0,255,157,0.1);  color:var(--green); }
+  .badge-warn { background:rgba(255,149,0,0.1);  color:var(--warn); }
+  .badge-err  { background:rgba(255,59,48,0.1);  color:var(--danger); }
+
+  /* ── CUSTO ── */
+  .cost-rows { display:flex; flex-direction:column; gap:8px; }
+  .crow { display:flex; align-items:center; gap:8px; font-family:'Share Tech Mono',monospace; font-size:10px; }
+  .crow-label { width:50px; }
+  .crow-label.opus   { color:var(--opus); }
+  .crow-label.sonnet { color:var(--sonnet); }
+  .crow-label.haiku  { color:var(--haiku); }
+  .crow-bar { flex:1; height:5px; background:var(--surface); border-radius:3px; overflow:hidden; }
+  .crow-fill { height:100%; border-radius:3px; transition:width 1s ease; }
+  .crow-fill.opus   { background:var(--opus);   box-shadow:0 0 6px var(--opus); }
+  .crow-fill.sonnet { background:var(--sonnet); box-shadow:0 0 6px var(--sonnet); }
+  .crow-fill.haiku  { background:var(--haiku);  box-shadow:0 0 6px var(--haiku); }
+  .crow-val { width:52px; text-align:right; color:var(--text); font-size:9px; }
+  .cost-total { display:flex; justify-content:space-between; align-items:center; padding-top:10px; border-top:1px solid var(--border); font-family:'Share Tech Mono',monospace; }
+  .ct-label { font-size:9px; color:var(--muted); letter-spacing:1px; }
+  .ct-val   { font-family:'Orbitron',monospace; font-size:15px; color:var(--green); }
+
+  /* ── REGRAS JARVIS ── */
+  .rules-list { display:flex; flex-direction:column; gap:4px; }
+  .rule { display:flex; align-items:flex-start; gap:8px; padding:6px 8px; border-radius:4px; background:var(--surface); font-family:'Share Tech Mono',monospace; font-size:9px; line-height:1.5; }
+  .rule-icon { flex-shrink:0; margin-top:1px; }
+  .rule-text { color:var(--text); }
+  .rule-text b { color:var(--warn); }
+
+  /* ── AUDITORIA CHECKLIST ── */
+  .check-list { display:flex; flex-direction:column; gap:5px; }
+  .check-item { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:4px; background:var(--surface); font-size:12px; cursor:pointer; transition:background 0.15s; }
+  .check-item:hover { background:rgba(0,212,255,0.05); }
+  .check-box { width:14px; height:14px; border:1px solid var(--muted); border-radius:3px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:9px; transition:all 0.2s; }
+  .check-item.done .check-box { background:var(--green); border-color:var(--green); color:var(--bg); }
+  .check-label { font-family:'Share Tech Mono',monospace; font-size:9px; color:var(--text); }
+  .check-item.done .check-label { color:var(--muted); text-decoration:line-through; }
+
+  /* ── PENDÊNCIAS OK ── */
+  .pending-list { display:flex; flex-direction:column; gap:5px; }
+  .pending-item { padding:8px 10px; border-radius:4px; background:var(--surface); border-left:3px solid var(--warn); }
+  .pending-title { font-size:12px; font-weight:600; color:var(--warn); }
+  .pending-desc  { font-family:'Share Tech Mono',monospace; font-size:9px; color:var(--muted); margin-top:2px; }
+  .pending-btns  { display:flex; gap:5px; margin-top:6px; }
+  .pbtn { font-family:'Share Tech Mono',monospace; font-size:8px; padding:3px 8px; border-radius:3px; border:1px solid; cursor:pointer; transition:all 0.2s; }
+  .pbtn-ok  { border-color:var(--green); color:var(--green); background:rgba(0,255,157,0.05); }
+  .pbtn-no  { border-color:var(--danger); color:var(--danger); background:rgba(255,59,48,0.05); }
+  .pbtn-ok:hover  { background:rgba(0,255,157,0.15); }
+  .pbtn-no:hover  { background:rgba(255,59,48,0.15); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">J</div>
+    <div class="logo-text">
+      <h1>JARVIS</h1>
+      <p>Jacometo Seguros · Orbe Pet · Mission Control v2</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="status-pill"><div class="dot"></div>SISTEMA ONLINE</div>
+    <div class="clock" id="clock">--:--:--</div>
+  </div>
+</header>
+
+<div class="grid">
+
+  <!-- ── MÉTRICAS TOPO ── -->
+  <div class="metrics-row">
+    <div class="metric blue">
+      <div class="metric-label">Leads Pipedrive Hoje</div>
+      <div class="metric-value" id="m-leads">--</div>
+      <div class="metric-sub delta-up" id="m-leads-d">carregando...</div>
+    </div>
+    <div class="metric green">
+      <div class="metric-label">Meta Jacometo</div>
+      <div class="metric-value" id="m-metaj">--</div>
+      <div class="metric-sub" id="m-metaj-cpl">CPL R$--</div>
+    </div>
+    <div class="metric blue">
+      <div class="metric-label">Meta Orbe Pet</div>
+      <div class="metric-value" id="m-metao">--</div>
+      <div class="metric-sub" id="m-metao-cpl">CPL R$--</div>
+    </div>
+    <div class="metric orange">
+      <div class="metric-label">Google + TikTok Orbe</div>
+      <div class="metric-value" id="m-goog">--</div>
+      <div class="metric-sub">campanhas Orbe Pet</div>
+    </div>
+    <div class="metric purple">
+      <div class="metric-label">GAP Meta × CRM</div>
+      <div class="metric-value" id="m-gap">--</div>
+      <div class="metric-sub" id="m-gap-sub">conversas sem inbound</div>
+    </div>
+    <div class="metric green">
+      <div class="metric-label">Custo API Hoje</div>
+      <div class="metric-value" id="m-cost">$0.00</div>
+      <div class="metric-sub" id="m-cost-brl">R$ 0,00</div>
+    </div>
+  </div>
+
+  <!-- ── SIDEBAR ESQUERDA ── -->
+  <div class="sidebar-left">
+
+    <!-- AGENTES -->
+    <div class="panel">
+      <div class="ptitle">Agentes OS</div>
+      <div class="agent-list">
+        <div class="agent">
+          <div class="agent-av av-opus">J</div>
+          <div class="agent-info">
+            <div class="agent-name">Jarvis — Hub</div>
+            <div class="agent-role">OPUS · EXECUTIVO GERAL</div>
+          </div>
+          <div class="agent-dot ad-on" id="ag-jarvis"></div>
+        </div>
+        <div class="agent">
+          <div class="agent-av av-sonnet">MJ</div>
+          <div class="agent-info">
+            <div class="agent-name">Agente Meta Jaco</div>
+            <div class="agent-role">SONNET · META ADS JACOMETO</div>
+          </div>
+          <div class="agent-dot ad-idle" id="ag-metaj"></div>
+        </div>
+        <div class="agent">
+          <div class="agent-av av-sonnet">GJ</div>
+          <div class="agent-info">
+            <div class="agent-name">Agente Google Jaco</div>
+            <div class="agent-role">SONNET · GOOGLE ADS JACOMETO</div>
+          </div>
+          <div class="agent-dot ad-idle" id="ag-googlej"></div>
+        </div>
+        <div class="agent">
+          <div class="agent-av av-sonnet">MO</div>
+          <div class="agent-info">
+            <div class="agent-name">Agente Meta Orbe</div>
+            <div class="agent-role">SONNET · META ADS ORBE PET</div>
+          </div>
+          <div class="agent-dot ad-idle" id="ag-metao"></div>
+        </div>
+        <div class="agent">
+          <div class="agent-av av-haiku">TO</div>
+          <div class="agent-info">
+            <div class="agent-name">Agente TikTok Orbe</div>
+            <div class="agent-role">HAIKU · TIKTOK ADS ORBE PET</div>
+          </div>
+          <div class="agent-dot ad-idle" id="ag-tiktok"></div>
+        </div>
+        <div class="agent">
+          <div class="agent-av av-opus">PJ</div>
+          <div class="agent-info">
+            <div class="agent-name">Agente Pipedrive</div>
+            <div class="agent-role">SONNET · CRM + CONSISTÊNCIA</div>
+          </div>
+          <div class="agent-dot ad-idle" id="ag-pipe"></div>
+        </div>
+        <div class="agent">
+          <div class="agent-av av-opus">AN</div>
+          <div class="agent-info">
+            <div class="agent-name">Analisa Negócios</div>
+            <div class="agent-role">OPUS · CRUZAMENTO DADOS</div>
+          </div>
+          <div class="agent-dot ad-idle" id="ag-analisa"></div>
+        </div>
+        <div class="agent">
+          <div class="agent-av av-haiku">AT</div>
+          <div class="agent-info">
+            <div class="agent-name">Agente Atendimento</div>
+            <div class="agent-role">HAIKU · PLATAFORMA LEADS</div>
+          </div>
+          <div class="agent-dot ad-idle" id="ag-atend"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CRON JOBS -->
+    <div class="panel" style="flex:1">
+      <div class="ptitle">Cron Jobs</div>
+      <div class="cron-list">
+        <div class="cron-item">
+          <span class="cron-time">07:00</span>
+          <span class="cron-name">Leads sem atividade +48h</span>
+          <span class="cron-badge cb-haiku">HAIKU</span>
+          <div class="cron-status cs-ok"></div>
+        </div>
+        <div class="cron-item">
+          <span class="cron-time">08:00</span>
+          <span class="cron-name">Briefing diário completo</span>
+          <span class="cron-badge cb-sonnet">SONNET</span>
+          <div class="cron-status cs-ok"></div>
+        </div>
+        <div class="cron-item">
+          <span class="cron-time">08:30</span>
+          <span class="cron-name">Meta Jaco — relatório 14d</span>
+          <span class="cron-badge cb-sonnet">SONNET</span>
+          <div class="cron-status cs-idle"></div>
+        </div>
+        <div class="cron-item">
+          <span class="cron-time">08:35</span>
+          <span class="cron-name">Meta Orbe — relatório 14d</span>
+          <span class="cron-badge cb-sonnet">SONNET</span>
+          <div class="cron-status cs-idle"></div>
+        </div>
+        <div class="cron-item">
+          <span class="cron-time">09:00</span>
+          <span class="cron-name">Pipedrive — consistência CRM</span>
+          <span class="cron-badge cb-sonnet">SONNET</span>
+          <div class="cron-status cs-idle"></div>
+        </div>
+        <div class="cron-item">
+          <span class="cron-time">09:00</span>
+          <span class="cron-name">Alerta Meta Ads (gasto)</span>
+          <span class="cron-badge cb-haiku">HAIKU</span>
+          <div class="cron-status cs-idle"></div>
+        </div>
+        <div class="cron-item">
+          <span class="cron-time">10:00</span>
+          <span class="cron-name">Meta × CRM — GAP cobertura</span>
+          <span class="cron-badge cb-opus">OPUS</span>
+          <div class="cron-status cs-idle"></div>
+        </div>
+        <div class="cron-item">
+          <span class="cron-time">12:00</span>
+          <span class="cron-name">Check leads meio-dia</span>
+          <span class="cron-badge cb-haiku">HAIKU</span>
+          <div class="cron-status cs-idle"></div>
+        </div>
+        <div class="cron-item">
+          <span class="cron-time">14:00</span>
+          <span class="cron-name">Alerta Meta Ads (gasto)</span>
+          <span class="cron-badge cb-haiku">HAIKU</span>
+          <div class="cron-status cs-idle"></div>
+        </div>
+        <div class="cron-item">
+          <span class="cron-time">14:30</span>
+          <span class="cron-name">TikTok Orbe — check API</span>
+          <span class="cron-badge cb-haiku">HAIKU</span>
+          <div class="cron-status cs-idle"></div>
+        </div>
+        <div class="cron-item">
+          <span class="cron-time">17:30</span>
+          <span class="cron-name">Resumo do dia</span>
+          <span class="cron-badge cb-sonnet">SONNET</span>
+          <div class="cron-status cs-idle"></div>
+        </div>
+        <div class="cron-item">
+          <span class="cron-time">18:00</span>
+          <span class="cron-name">Analisa Negócios — cruzamento</span>
+          <span class="cron-badge cb-opus">OPUS</span>
+          <div class="cron-status cs-idle"></div>
+        </div>
+        <div class="cron-item">
+          <span class="cron-time">20:00</span>
+          <span class="cron-name">Resumo Orbe Pet</span>
+          <span class="cron-badge cb-sonnet">SONNET</span>
+          <div class="cron-status cs-idle"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── CENTRO ── -->
+  <div class="center">
+    <div style="padding:18px 18px 0;">
+      <div class="ptitle">Log de Atividade — Tempo Real</div>
+    </div>
+
+    <div class="log-wrap" id="log"></div>
+
+    <!-- PENDÊNCIAS AGUARDANDO OK -->
+    <div style="padding:0 16px 8px;">
+      <div class="ptitle" style="margin-bottom:8px;">Pendências — Aguardando OK</div>
+      <div class="pending-list" id="pending-list">
+        <div class="pending-item">
+          <div class="pending-title">Meta Jaco — Sugestão de mudança</div>
+          <div class="pending-desc">Pausar campanha "Carga PR" (CPL R$89 — acima do limite) e realocar R$50/dia para "Transportadoras SP"</div>
+          <div class="pending-btns">
+            <button class="pbtn pbtn-ok" onclick="approveItem(this)">✓ APROVAR</button>
+            <button class="pbtn pbtn-no" onclick="rejectItem(this)">✗ NEGAR</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- INPUT -->
+    <div class="input-area">
+      <div class="model-row">
+        <button class="mbtn active auto" id="btn-auto" onclick="setModel('auto',this)">⚡ AUTO</button>
+        <span class="sep">|</span>
+        <button class="mbtn opus"   onclick="setModel('opus',this)">OPUS</button>
+        <button class="mbtn sonnet" onclick="setModel('sonnet',this)">SONNET</button>
+        <button class="mbtn haiku"  onclick="setModel('haiku',this)">HAIKU</button>
+      </div>
+      <div class="send-row">
+        <textarea class="jinput" id="jinput" placeholder="Pergunte ao Jarvis..." rows="1" onkeydown="handleKey(event)"></textarea>
+        <button class="sbtn" onclick="send()">ENVIAR</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SIDEBAR DIREITA ── -->
+  <div class="sidebar-right">
+
+    <!-- INTEGRAÇÕES -->
+    <div class="panel">
+      <div class="ptitle">Integrações</div>
+      <div class="int-list">
+        <div class="int-item ok">
+          <div class="int-icon">🔵</div>
+          <div class="int-info">
+            <div class="int-name">Pipedrive</div>
+            <div class="int-stat" id="i-pipe">-- deals abertos</div>
+          </div>
+          <div class="badge badge-ok">OK</div>
+        </div>
+        <div class="int-item ok">
+          <div class="int-icon">📘</div>
+          <div class="int-info">
+            <div class="int-name">Meta Ads Jacometo</div>
+            <div class="int-stat" id="i-metaj">R$-- hoje</div>
+          </div>
+          <div class="badge badge-ok">OK</div>
+        </div>
+        <div class="int-item ok">
+          <div class="int-icon">📗</div>
+          <div class="int-info">
+            <div class="int-name">Meta Ads Orbe Pet</div>
+            <div class="int-stat" id="i-metao">R$-- hoje</div>
+          </div>
+          <div class="badge badge-ok">OK</div>
+        </div>
+        <div class="int-item warn">
+          <div class="int-icon">🔍</div>
+          <div class="int-info">
+            <div class="int-name">Google Ads Jaco</div>
+            <div class="int-stat">OAuth pendente</div>
+          </div>
+          <div class="badge badge-warn">SETUP</div>
+        </div>
+        <div class="int-item warn">
+          <div class="int-icon">🎵</div>
+          <div class="int-info">
+            <div class="int-name">TikTok Ads Orbe</div>
+            <div class="int-stat">Token pendente</div>
+          </div>
+          <div class="badge badge-warn">SETUP</div>
+        </div>
+        <div class="int-item warn">
+          <div class="int-icon">💬</div>
+          <div class="int-info">
+            <div class="int-name">Plataforma Atendimento</div>
+            <div class="int-stat">URL/webhook pendente</div>
+          </div>
+          <div class="badge badge-warn">SETUP</div>
+        </div>
+        <div class="int-item warn">
+          <div class="int-icon">🐾</div>
+          <div class="int-info">
+            <div class="int-name">Orbe Pet / APet</div>
+            <div class="int-stat">API pendente</div>
+          </div>
+          <div class="badge badge-warn">SETUP</div>
+        </div>
+        <div class="int-item ok">
+          <div class="int-icon">✈️</div>
+          <div class="int-info">
+            <div class="int-name">Telegram @jarvisclaude</div>
+            <div class="int-stat">online · polling ativo</div>
+          </div>
+          <div class="badge badge-ok">LIVE</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CUSTO POR MODELO -->
+    <div class="panel">
+      <div class="ptitle">Custo por Modelo</div>
+      <div class="cost-rows">
+        <div class="crow">
+          <span class="crow-label opus">OPUS</span>
+          <div class="crow-bar"><div class="crow-fill opus" id="bar-opus" style="width:0%"></div></div>
+          <span class="crow-val" id="val-opus">$0.0000</span>
+        </div>
+        <div class="crow">
+          <span class="crow-label sonnet">SONNET</span>
+          <div class="crow-bar"><div class="crow-fill sonnet" id="bar-sonnet" style="width:0%"></div></div>
+          <span class="crow-val" id="val-sonnet">$0.0000</span>
+        </div>
+        <div class="crow">
+          <span class="crow-label haiku">HAIKU</span>
+          <div class="crow-bar"><div class="crow-fill haiku" id="bar-haiku" style="width:0%"></div></div>
+          <span class="crow-val" id="val-haiku">$0.0000</span>
+        </div>
+        <div class="cost-total">
+          <span class="ct-label">TOTAL SESSÃO</span>
+          <span class="ct-val" id="ct-total">$0.0000</span>
+        </div>
+        <div style="text-align:right;font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--muted);" id="ct-brl">R$ 0,00</div>
+      </div>
+    </div>
+
+    <!-- REGRAS JARVIS -->
+    <div class="panel">
+      <div class="ptitle">Regras Críticas — Jarvis</div>
+      <div class="rules-list">
+        <div class="rule"><span class="rule-icon">🚫</span><span class="rule-text"><b>NUNCA</b> deletar/arquivar dados CRM</span></div>
+        <div class="rule"><span class="rule-icon">🔐</span><span class="rule-text"><b>NUNCA</b> expor tokens/chaves no chat</span></div>
+        <div class="rule"><span class="rule-icon">✋</span><span class="rule-text"><b>OK obrigatório</b> para ação externa (msg/campanha/deploy)</span></div>
+        <div class="rule"><span class="rule-icon">📋</span><span class="rule-text"><b>Conclusão primeiro</b> — 2 opções + recomendação</span></div>
+        <div class="rule"><span class="rule-icon">🔗</span><span class="rule-text"><b>Toda afirmação</b> aponta para arquivo de output ou link</span></div>
+        <div class="rule"><span class="rule-icon">👤</span><span class="rule-text">Activity cobrança → user_id <b>15830108</b> (Cobrança)</span></div>
+      </div>
+    </div>
+
+    <!-- CHECKLIST AUDITORIA -->
+    <div class="panel" style="flex:1">
+      <div class="ptitle">Checklist Diário — 2 min</div>
+      <div class="check-list" id="checks">
+        <div class="check-item" onclick="toggleCheck(this)">
+          <div class="check-box"></div>
+          <span class="check-label">Mission Control — erro em cron?</span>
+        </div>
+        <div class="check-item" onclick="toggleCheck(this)">
+          <div class="check-box"></div>
+          <span class="check-label">Pipedrive — inconsistências? (out/pipedrive/)</span>
+        </div>
+        <div class="check-item" onclick="toggleCheck(this)">
+          <div class="check-box"></div>
+          <span class="check-label">Meta × CRM — GAP cobertura ok?</span>
+        </div>
+        <div class="check-item" onclick="toggleCheck(this)">
+          <div class="check-box"></div>
+          <span class="check-label">Meta Ads — custo/CPL dentro do limite?</span>
+        </div>
+        <div class="check-item" onclick="toggleCheck(this)">
+          <div class="check-box"></div>
+          <span class="check-label">Pendências aguardando OK do Adriano?</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+const CAMBIO = 5.75;
+let selModel = 'auto';
+const costs = { opus:0, sonnet:0, haiku:0 };
+let totalCost = 0;
+
+// ── RELÓGIO ──────────────────────────────────────────────────────────────────
+function tick() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo',hour12:false});
+}
+setInterval(tick,1000); tick();
+
+// ── MODELO ───────────────────────────────────────────────────────────────────
+function setModel(m, btn) {
+  selModel = m;
+  document.querySelectorAll('.mbtn').forEach(b => b.classList.remove('active','auto','opus','sonnet','haiku'));
+  btn.classList.add('active', m);
+}
+
+function autoDetect(msg) {
+  const t = msg.toLowerCase();
+  const opus  = ['estratégia','analisar','sinistro','jurídico','por que','como melhorar','decisão','risco','projeção','diagnóstico'];
+  const haiku = ['oi','olá','bom dia','ok','sim','obrigado','status','gasto hoje','leads hoje'];
+  if (opus.some(k  => t.includes(k))) return 'opus';
+  if (haiku.some(k => t === k || t.startsWith(k))) return 'haiku';
+  return 'sonnet';
+}
+
+// ── LOG ───────────────────────────────────────────────────────────────────────
+function addLog(type, model, html, cost) {
+  const el = document.getElementById('log');
+  const now = new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo',hour12:false});
+  const mclass = type==='cron'?'lm-cron':type==='sys'?'lm-sys':`lm-${model}`;
+  const mlabel = type==='cron'?'CRON':type==='sys'?'SYS':model.toUpperCase();
+  const costStr = cost ? `$${cost.toFixed(5)}` : '';
+  const div = document.createElement('div');
+  div.className='log-entry';
+  div.innerHTML=`<span class="log-time">${now}</span><span class="lm ${mclass}">${mlabel}</span><span class="log-msg">${html}</span><span class="log-cost">${costStr}</span>`;
+  el.prepend(div);
+  while(el.children.length>60) el.removeChild(el.lastChild);
+}
+
+// ── CUSTO ─────────────────────────────────────────────────────────────────────
+function addCost(model, c) {
+  costs[model] = (costs[model]||0)+c;
+  totalCost += c;
+  const max = Math.max(...Object.values(costs),0.0001);
+  ['opus','sonnet','haiku'].forEach(m=>{
+    document.getElementById(`bar-${m}`).style.width = `${(costs[m]/max)*100}%`;
+    document.getElementById(`val-${m}`).textContent = `$${costs[m].toFixed(4)}`;
+  });
+  document.getElementById('ct-total').textContent = `$${totalCost.toFixed(4)}`;
+  document.getElementById('ct-brl').textContent   = `R$ ${(totalCost*CAMBIO).toFixed(2).replace('.',',')}`;
+  document.getElementById('m-cost').textContent   = `$${totalCost.toFixed(2)}`;
+  document.getElementById('m-cost-brl').textContent = `R$ ${(totalCost*CAMBIO).toFixed(2).replace('.',',')}`;
+}
+
+// ── SEND ──────────────────────────────────────────────────────────────────────
+function handleKey(e){ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();} }
+
+function send() {
+  const inp = document.getElementById('jinput');
+  const msg = inp.value.trim(); if(!msg) return;
+  inp.value='';
+  const m = selModel==='auto' ? autoDetect(msg) : selModel;
+  addLog('user', m, `<span class="source">Você →</span> ${msg}`);
+
+  // Ativa agente visual
+  const agMap={opus:'ag-jarvis',sonnet:'ag-analisa',haiku:'ag-atend'};
+  const agEl = document.getElementById(agMap[m]);
+  if(agEl){agEl.className='agent-dot ad-busy';}
+
+  setTimeout(()=>{
+    const fakeResp = {
+      opus:   `<span class="source">Jarvis [OPUS]</span> Análise concluída. Recomendação: revisar precificação RCTR-C para transportadoras SP acima de 50 veículos. Base: CPL Meta Jaco subiu 23% em 14d enquanto conversão Pipedrive manteve. <span class="ok">→ out/analise/2025-04-05.md</span>`,
+      sonnet: `<span class="source">Jarvis [SONNET]</span> Pipedrive: 7 leads hoje, 3 sem atividade +48h (João: 2, Alessandro: 1). Meta Jaco: R$187 gastos, CPL R$26,7. Meta Orbe: R$218, CPL R$43,2. <span class="ok">→ out/pipedrive/2025-04-05.md</span>`,
+      haiku:  `<span class="source">Jarvis [HAIKU]</span> <span class="ok">✅</span> 7 leads hoje. GAP Meta×CRM: 2 conversas sem inbound. TikTok Orbe: R$89, CTR 2.1%.`
+    }[m];
+    const fakeCost = {opus:0.003,sonnet:0.001,haiku:0.0001}[m];
+    addLog('jarvis', m, fakeResp, fakeCost);
+    addCost(m, fakeCost);
+    if(agEl) agEl.className='agent-dot ad-on';
+  }, 1600);
+}
+
+// ── PENDÊNCIAS ────────────────────────────────────────────────────────────────
+function approveItem(btn){
+  const item = btn.closest('.pending-item');
+  item.style.borderLeftColor='var(--green)';
+  item.querySelector('.pending-title').style.color='var(--green)';
+  btn.parentElement.innerHTML='<span style="font-family:\'Share Tech Mono\',monospace;font-size:9px;color:var(--green);">✓ APROVADO — aguardando execução</span>';
+  addLog('sys','sonnet',`<span class="ok">✓ OK dado:</span> ${item.querySelector('.pending-title').textContent}`);
+}
+function rejectItem(btn){
+  const item = btn.closest('.pending-item');
+  item.style.opacity='0.5';
+  btn.parentElement.innerHTML='<span style="font-family:\'Share Tech Mono\',monospace;font-size:9px;color:var(--danger);">✗ NEGADO</span>';
+  addLog('sys','haiku',`<span class="err">✗ Negado:</span> ${item.querySelector('.pending-title').textContent}`);
+}
+
+// ── CHECKLIST ─────────────────────────────────────────────────────────────────
+function toggleCheck(el){
+  el.classList.toggle('done');
+  el.querySelector('.check-box').textContent = el.classList.contains('done') ? '✓' : '';
+}
+
+// ── CRON SIMULADO ─────────────────────────────────────────────────────────────
+const cronSim = [
+  {model:'haiku', html:'<span class="source">Cron 07:00</span> ⚠️ Lead <b>"Frigorífico Paraná"</b> sem atividade 52h → Alessandro. <span class="warn">→ out/pipedrive/</span>'},
+  {model:'sonnet',html:'<span class="source">Cron 08:00</span> Briefing enviado Telegram. Leads:7 | MetaJ:R$187 | MetaO:R$218 | GAP CRM:2. <span class="ok">→ out/meta/</span>'},
+  {model:'opus',  html:'<span class="source">Cron 10:00</span> Meta×CRM: 38 conversas Meta | 36 inbound CRM | GAP:2 | GAP auto (nina):5. <span class="warn">Investigar nina.</span> <span class="ok">→ out/crm/</span>'},
+  {model:'haiku', html:'<span class="source">Cron 09:00</span> <span class="ok">✅</span> Meta Jaco gasto R$187 — dentro do orçamento.'},
+  {model:'sonnet',html:'<span class="source">Cron 09:00</span> Pipedrive: 2 deals VALOR=0 em etapa avançada. Notes criadas. <span class="warn">→ out/pipedrive/</span>'},
+  {model:'haiku', html:'<span class="source">Cron 14:30</span> TikTok Orbe: R$89 gastos | 12 cliques | CTR 2.1%. <span class="ok">→ out/orbe/tiktok_</span>'},
+];
+let cronIdx=0;
+setInterval(()=>{
+  const c=cronSim[cronIdx%cronSim.length];
+  addLog('cron',c.model,c.html);
+  cronIdx++;
+},18000);
+
+// ── CUSTO REAL — polling /api/cost ────────────────────────────────────────────
+function updateCostUI(data) {
+  if (!data || !data.ok) return;
+  const t = data.total_usd || 0;
+  const m = data.models   || {};
+  const opus   = m.opus   || 0;
+  const sonnet = m.sonnet || 0;
+  const haiku  = m.haiku  || 0;
+  const max = Math.max(opus, sonnet, haiku, 0.0001);
+
+  // Barras e valores por modelo
+  ['opus','sonnet','haiku'].forEach(k => {
+    const v = m[k] || 0;
+    const bar = document.getElementById(`bar-${k}`);
+    const val = document.getElementById(`val-${k}`);
+    if (bar) bar.style.width = `${(v/max)*100}%`;
+    if (val) val.textContent  = `$${v.toFixed(4)}`;
+  });
+
+  // Total sessão
+  const ct = document.getElementById('ct-total');
+  const ctBrl = document.getElementById('ct-brl');
+  if (ct)    ct.textContent    = `$${t.toFixed(4)}`;
+  if (ctBrl) ctBrl.textContent = `R$ ${(t*CAMBIO).toFixed(2).replace('.',',')}`;
+
+  // Card métrica topo
+  const mc  = document.getElementById('m-cost');
+  const mcb = document.getElementById('m-cost-brl');
+  if (mc)  mc.textContent  = `$${t.toFixed(2)}`;
+  if (mcb) mcb.textContent = `R$ ${(t*CAMBIO).toFixed(2).replace('.',',')}`;
+}
+
+async function fetchRealCost() {
+  try {
+    const r = await fetch('/api/cost');
+    if (r.ok) updateCostUI(await r.json());
+  } catch { /* servidor pode estar offline */ }
+}
+
+// Primeira busca logo ao carregar, depois a cada 30s
+fetchRealCost();
+setInterval(fetchRealCost, 30_000);
+
+// ── BOOT ──────────────────────────────────────────────────────────────────────
+setTimeout(()=>addLog('sys','sys','<span class="source">Sistema</span> Jarvis Mission Control v2 online. Memória carregada. 8 agentes registrados.'),400);
+setTimeout(()=>addLog('cron','sonnet','<span class="source">Cron 08:00</span> Briefing diário enviado. 7 leads | R$405 Meta total | GAP CRM: 2 conversas. <span class="ok">→ out/meta/</span>'),900);
+setTimeout(()=>addLog('jarvis','haiku','<span class="source">Jarvis [HAIKU]</span> Pipedrive conectado. <span class="ok">23 deals abertos</span>, 4 novos hoje, 3 sem atividade +48h.', 0.0001),1500);
+setTimeout(()=>addLog('jarvis','sonnet','<span class="source">Jarvis [SONNET]</span> Meta Ads online. Jacometo: R$187 (CPL R$26,7) | Orbe: R$218 (CPL R$43,2). <span class="ok">→ out/meta/</span>', 0.0008),2200);
+setTimeout(()=>{
+  addCost('sonnet',0.0008);addCost('haiku',0.0001);
+  document.getElementById('m-leads').textContent='7';
+  document.getElementById('m-leads-d').textContent='↑ +3 vs ontem';
+  document.getElementById('m-metaj').textContent='R$187';
+  document.getElementById('m-metaj-cpl').textContent='CPL R$26,70';
+  document.getElementById('m-metao').textContent='R$218';
+  document.getElementById('m-metao-cpl').textContent='CPL R$43,20';
+  document.getElementById('m-goog').textContent='R$89';
+  document.getElementById('m-gap').textContent='2';
+  document.getElementById('m-gap-sub').textContent='Meta→CRM sem inbound';
+  document.getElementById('i-pipe').textContent='23 deals abertos';
+  document.getElementById('i-metaj').textContent='R$187 hoje';
+  document.getElementById('i-metao').textContent='R$218 hoje';
+  document.getElementById('ag-jarvis').className='agent-dot ad-on';
+},3000);
+</script>
+</body>
+</html>

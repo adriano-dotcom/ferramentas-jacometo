@@ -1,241 +1,184 @@
-# CLAUDE.md — Ferramentas Jacometo Seguros
+# CLAUDE.md
 
-Este arquivo instrui o Claude Code sobre a arquitetura, convenções e como trabalhar neste projeto.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## O que é este projeto
+## What This Is
 
-Hub interno de automações RPA da **Jacometo Corretora de Seguros**.
-Acessa portais de seguradoras via Playwright (headless Chromium), extrai dados, gera CSVs e envia emails.
-Roda em um **Mac Mini local (Jarvis)** exposto via Cloudflare Tunnel em `ferramentas.jacometo.com.br`.
+**Jarvis OS** — autonomous executive assistant for Jacometo Corretora de Seguros (transport insurance) and Orbe Pet (pet health plans). Telegram bot powered by Claude API with tool use, running on Mac Mini 2 (Node.js v22, ESM).
 
-## Estrutura
+Bot: `@jarvisclaude` | Owner: Adriano Jacometo
 
-```
-ferramentas-jacometo/
-├── backend/                  # Node.js + Express + Playwright
-│   ├── src/
-│   │   ├── server.js         # Entry point — registra todas as rotas
-│   │   ├── jobs/             # Um arquivo por automação
-│   │   │   ├── config.js     # Painel de credenciais (AES-256, getCred())
-│   │   │   ├── allianz-inadimplentes.js
-│   │   │   ├── tokio-inadimplentes.js
-│   │   │   └── ... (um por seguradora)
-│   │   └── lib/
-│   │       ├── browser.js    # Fábrica Playwright (headless, pt-BR, downloads)
-│   │       ├── email.js      # Nodemailer Gmail
-│   │       └── logger.js     # Log em arquivo + console
-│   ├── config/               # credenciais.json gerado pelo painel (gitignored)
-│   ├── downloads/            # CSVs e screenshots (gitignored)
-│   ├── logs/                 # Logs diários (gitignored)
-│   ├── credentials.json      # Google Service Account (gitignored — nunca commitar)
-│   ├── .env                  # Variáveis de ambiente (gitignored)
-│   └── package.json
-│
-├── frontend/                 # Next.js 14 App Router
-│   ├── app/
-│   │   ├── layout.tsx        # Root layout com CSS vars (dark mode incluso)
-│   │   ├── globals.css       # Design tokens — var(--bg), var(--surface), etc.
-│   │   ├── login/page.tsx    # Tela de login (senha única → cookie httpOnly)
-│   │   ├── ferramentas/
-│   │   │   ├── page.tsx      # Hub — grid de cards filtráveis por responsável
-│   │   │   ├── configuracoes/page.tsx  # Painel de credenciais
-│   │   │   └── [slug]/page.tsx         # Uma página por automação
-│   │   └── api/auth/login/route.ts
-│   ├── components/
-│   │   └── JobStatus.tsx     # Componente reutilizável: polling + progresso + falhas
-│   ├── middleware.ts          # Protege todas as rotas com cookie de auth
-│   ├── next.config.js        # Proxy: /api/rpa/* → localhost:3001/api/*
-│   └── package.json
-│
-├── instalar.sh               # Setup completo no Mac Mini (rodar uma vez)
-├── atualizar.sh              # git pull + rebuild + pm2 restart
-├── TUNNEL.md                 # Instruções Cloudflare Tunnel
-└── CLAUDE.md                 # Este arquivo
-```
-
-## Padrão de um job (seguir sempre)
-
-Cada arquivo em `backend/src/jobs/` exporta uma função handler Express e um `getJobStatus`:
-
-```js
-// 1. Imports obrigatórios
-require('dotenv').config()
-const { getCred } = require('./config')  // credenciais do painel
-
-// 2. Store de jobs em memória (TTL 2h)
-const JOBS = new Map()
-function criarJob() { ... }
-function atualizar(id, dados) { ... }
-module.exports.getJobStatus = (req, res) => { ... }
-
-// 3. Credenciais — lidas no topo do módulo (let para serem mutáveis)
-const _cred = getCred('nome_seguradora')
-let LOGIN_USER  = _cred.usuario || ''
-let LOGIN_SENHA = _cred.senha   || ''
-let PORTAL_URL  = _cred.url     || ''
-
-// 4. Handler — responde imediatamente com jobId, processa em setImmediate
-module.exports = async function routeXxx(req, res) {
-  const jobId = criarJob()
-  res.json({ ok: true, jobId })
-
-  setImmediate(async () => {
-    // SEMPRE recarrega credenciais aqui (pega atualizações do painel em tempo real)
-    const _creds = getCred('nome_seguradora')
-    LOGIN_USER  = _creds.usuario || LOGIN_USER
-    LOGIN_SENHA = _creds.senha   || LOGIN_SENHA
-    PORTAL_URL  = _creds.url     || PORTAL_URL
-
-    const { browser, page } = await abrirBrowser()
-    try {
-      atualizar(jobId, { progresso: 0 })
-      // ... lógica de automação ...
-      atualizar(jobId, { status: 'concluido', progresso: N, resultados: [...] })
-    } catch (e) {
-      atualizar(jobId, { status: 'erro_critico', ... })
-    } finally {
-      await fecharBrowser(browser)
-    }
-  })
-}
-```
-
-## Estrutura do objeto `resultados` (para o JobStatus do frontend)
-
-```js
-{
-  nome: 'Nome do segurado ou item',
-  sub:  'Detalhe — apólice, valor, vencimento',
-  status: 'OK' | 'FALHA' | 'AVISO',
-  label: 'Descrição do erro (null se OK)',
-  orientacao: 'O que fazer (null se OK)',
-  erro: 'Mensagem técnica (null se OK)',
-  tipo: 'LOGIN_FALHOU' | 'TIMEOUT' | 'NAVEGACAO' | 'DOWNLOAD_FALHOU' | null,
-  screenshotPath: '/caminho/para/screenshot.png' // opcional
-}
-```
-
-## Credenciais — sistema de configuração
-
-As credenciais **não ficam no .env**. Ficam no painel `/ferramentas/configuracoes`.
-
-- `backend/src/jobs/config.js` — define os portais e campos, lê/salva `config/credenciais.json` com AES-256
-- `getCred('nome_seguradora')` — retorna `{ url, usuario, senha, ... }` descriptografado
-- Chaves de seguradora disponíveis: `allianz`, `tokio`, `axa`, `chubb`, `sompo`, `akad`, `yelum`, `mitsui`, `essor`, `metlife`, `unimed_seguros`, `unimed_boletos`, `quiver`, `plano_hospitalar`
-
-## Registrar nova rota no server.js
-
-```js
-// 1. Import no topo
-const routeNovaSeguradora = require('./jobs/nova-seguradora')
-const { getJobStatus: statusNova } = routeNovaSeguradora
-
-// 2. Rotas
-app.post('/api/nova-seguradora/executar',       routeNovaSeguradora)
-app.get('/api/nova-seguradora/status/:jobId',  statusNova)
-```
-
-## Adicionar nova seguradora ao painel de configurações
-
-Em `backend/src/jobs/config.js`, no objeto `PADRAO`:
-
-```js
-nova_seguradora: {
-  label:  'Nome Exibido',
-  url:    'https://portal.seguradora.com.br',
-  campos: { usuario: 'user_padrao', senha: '' },
-},
-```
-
-## Variáveis de ambiente necessárias (.env)
-
-```
-PORT=3001
-FRONTEND_URL=https://ferramentas.jacometo.com.br
-HEADLESS=true
-DOWNLOAD_DIR=./downloads
-SMTP_USER=automacao@jacometo.com.br
-SMTP_PASS=xxxx xxxx xxxx xxxx
-EMAIL_EQUIPE=adriano@jacometo.com.br,...
-GOOGLE_CREDENTIALS_PATH=./credentials.json
-GOOGLE_DRIVE_FOLDER_BOLETOS=...
-GOOGLE_SHEETS_GRUPOS_ID=...
-CONFIG_ENCRYPT_KEY=32-chars-aleatorios
-```
-
-## Frontend — convenções
-
-- **Sem bibliotecas de UI** — CSS inline com variáveis CSS (`var(--bg)`, `var(--surface)`, etc.)
-- **Dark mode automático** — via `@media (prefers-color-scheme: dark)` no globals.css
-- **JobStatus.tsx** — usar em TODAS as páginas de automação (polling a cada 2s, progresso, erros)
-- **Proxy** — frontend chama `/api/rpa/[rota]` → Next.js redireciona para `localhost:3001/api/[rota]`
-- **Auth** — middleware.ts verifica cookie `hub_auth` em todas as rotas exceto `/login` e `/api/auth`
-
-## Comandos úteis no Mac Mini
+## Commands
 
 ```bash
-pm2 list                          # Status dos processos
-pm2 logs ferramentas-backend      # Logs do backend em tempo real
-pm2 restart ferramentas-backend   # Reinicia backend (após editar jobs)
-pm2 restart ferramentas-frontend  # Reinicia frontend
+# Dev (auto-reload)
+npm run dev
 
-# Rebuild do frontend após mudanças
-cd ~/ferramentas-jacometo/frontend && npm run build && pm2 restart ferramentas-frontend
+# Production
+pm2 start src/index.js --name jarvis
+pm2 logs jarvis
 
-# Ver logs de hoje
-tail -f ~/ferramentas-jacometo/backend/logs/rpa-$(date +%Y-%m-%d).log
+# Test individual tool
+node -e "import('./src/skills.js').then(async({executeTool})=>console.log(JSON.stringify(await executeTool('TOOL_NAME',{param:'val'}),null,2)))"
+
+# Test Playwright
+npm run playwright:test
+
+# Test memory
+node -e "import('./src/memory.js').then(m=>{m.initMemory();console.log(m.getMemoryStats());})"
+
+# Test web search
+node -e "import('./src/search.js').then(async m=>console.log(await m.pesquisar('teste')))"
+
+# Open dashboards
+open dashboard-mission-control.html
+open dashboard-gerentes.html      # Jacometo + Orbe dual view
+open dashboard-gerente-loop.html  # Campaign → Sale loop
 ```
 
-## Supabase — banco de dados
+## Architecture
 
-**Schema**: `supabase/schema.sql` — colar no SQL Editor do Supabase e executar.
-
-**Tabelas:**
-| Tabela | O que guarda |
-|--------|-------------|
-| `jobs_history` | Uma linha por execução de automação |
-| `job_results` | Um item por segurado/cliente dentro de cada job |
-| `clientes_plano_hospitalar` | Lista de clientes da Bárbara (editável pelo frontend) |
-| `job_screenshots` | Metadados de screenshots de erro |
-
-**Backend** (`lib/database.js`) — chamar em cada job:
-```js
-const db = require('../lib/database')
-
-// No início do setImmediate (já feito em todos os jobs)
-const _inicio = new Date()
-await db.jobIniciado(jobId, 'allianz')
-
-// Ao concluir com sucesso
-await db.jobConcluido(jobId, 'allianz', { resultados, csvPath }, _inicio)
-
-// Em caso de erro
-await db.jobErro(jobId, 'allianz', e.message, _inicio)
+```
+Telegram → index.js → claude.js (tool use loop) → skills.js (40+ tools)
+                         ↓                            ↓
+                    router.js                    External APIs:
+                    (auto-selects model)         Pipedrive, Meta Ads,
+                         ↓                      Google Ads, TikTok,
+                    personality.js               Chatwoot (×2),
+                    + memory.js                  ElevenLabs, Brave Search,
+                    (system prompt              Playwright (Quiver/ATM/NDN),
+                     with injected memory)       Agente ARQUIVO
 ```
 
-**Frontend** (`lib/supabase.ts`) — acessa diretamente com anon key:
-```js
-import { supabase } from '../../../lib/supabase'
-const { data } = await supabase.from('jobs_history').select('*')
+### Request Flow
+1. `index.js` receives Telegram message (text, voice, or command)
+2. `router.js` auto-routes to Opus/Sonnet/Haiku based on keywords in the message
+3. `claude.js` builds system prompt (personality + memory context), sends to Claude API with TOOLS array
+4. Claude responds with `tool_use` blocks → `skills.js:executeTool()` dispatches to the right module
+5. Tool results return to Claude for final response → sent back to Telegram
+
+### Model Routing (`router.js`)
+- **Opus** (`claude-opus-4-6`): strategy, claims analysis, complex decisions — keywords: `estratégia`, `sinistro`, `risco`, `apólice`
+- **Sonnet** (`claude-sonnet-4-6`): reports, leads, campaigns — keywords: `leads`, `pipedrive`, `meta ads`, `briefing`, `relatório`
+- **Haiku** (`claude-haiku-4-5-20251001`): quick checks, crons, greetings — keywords: `status`, `gasto hoje`, `oi`, `ok`
+
+### Two Companies — Isolated Context (`empresas.js`)
+
+**Jacometo Seguros** — transport insurance (RCTR-C, RC-DC)
+- CRM: `crm.jacometo.com.br` (Chatwoot) → Pipedrive
+- Ads: Meta Ads + Google Ads
+- Webhook: `POST /webhook/jacometo` (port 3001)
+- Labels: IDs 443-451 mapped to sales reps
+- Cobranca activities: `user_id 15830108` (hardcoded, never change)
+
+**Orbe Pet** — pet health plans (APet/Angelus)
+- Plans: Essencial R$37.62 | Plus R$89.82 | Total R$107.82 | Galáxia R$138.32
+- CRM: `crm.orbepet.com.br` (Chatwoot) → Pipedrive
+- Ads: Meta + TikTok (main channel) + Google
+- Webhook: `POST /webhook/orbe`
+
+### Gerente Agent (the strategic brain)
+
+`gerente.js` closes the full loop: Campaign → Chatwoot lead → Pipedrive deal → Won/Lost. It cross-references data from Meta/Google/TikTok spend with CRM pipeline to calculate CPL, conversion rates, and generate alerts + recommendations (always 2 options + Jarvis recommendation, awaiting Adriano's OK).
+
+`gerente-orbe.js` — same pattern but Orbe-specific: tracks MRR, churn, plan activations, TikTok as primary channel.
+
+Dashboard at `https://jarvis.jacometo.com.br/gerentes` visualizes both gerentes.
+
+### Memory System (`memory.js`) — 5 Layers in SQLite
+
+1. **History** — last 20 messages per user
+2. **Facts** — semantic key-value pairs per user/global (`lembrarFato`/`recordarFato`)
+3. **Project context** — active project state (`salvarContexto`/`getContextosAtivos`)
+4. **Episodes** — important events (decisions, approvals, milestones)
+5. **SOUL** — identity and rules (immutable personality core)
+
+Memory is injected into the system prompt via `buildMemoryContext(userId)` in `personality.js`.
+
+### Webhook Server (`webhook-server.js`)
+
+Express on port 3001. Receives Chatwoot events for both companies, verifies HMAC signatures, dispatches to `processarWebhookChatwoot()`, and notifies Telegram on new leads/deals.
+
+### Cron Jobs (`crons.js`) — Brasilia Time
+
+Weekdays: 08:00 briefing, 09:00/14:00 Meta Ads alerts, 12:00 lead check, 17:30 daily summary. Daily: 07:00 stale leads, 07:30 ARQUIVO agent health, 20:00 Orbe Pet summary. All crons use `askJarvisWithModel()` with the appropriate model tier.
+
+### Playwright Automations (`src/playwright/`)
+
+Browser automation for insurance systems: Quiver PRO (transport invoices), ATM/NDN (overdue installments), insurance company portals (Tokio, Sompo, Allianz), health department. Sessions persist in `~/.jarvis/sessions/`.
+
+### Agente ARQUIVO (remote Mac Mini)
+
+Communicates via HTTP to `ferramentas.jacometo.com.br`. Runs Playwright automations on the other Mac Mini. Status checked via `statusAgenteArquivo()`. Shared output at `/Volumes/JarvisShared/clawd/out/`.
+
+## Key Modules
+
+| Module | Purpose |
+|--------|---------|
+| `skills.js` | TOOLS array definition + `executeTool()` switch — **the central dispatcher** |
+| `claude.js` | Claude API wrapper, tool use loop, cost tracking |
+| `router.js` | Auto model selection + cost estimation |
+| `personality.js` | System prompt builder (SOUL + memory injection) |
+| `memory.js` | SQLite-backed 5-layer memory |
+| `meta.js` | Meta Marketing API (Graph v21.0) — insights, campaigns, alerts, GAP analysis |
+| `pipedrive.js` | Pipedrive API v2 — deals, activities, funnel, consistency checks |
+| `gerente.js` | Gerente Jacometo — full loop analysis, Chatwoot integration |
+| `gerente-orbe.js` | Gerente Orbe Pet — MRR, churn, multi-channel (Meta+TikTok+Google) |
+| `empresas.js` | Multi-company config (Chatwoot, Pipedrive, Meta, TikTok, Google per company) |
+| `webhook-server.js` | Express webhooks for both Chatwoot instances |
+| `crons.js` | 7+ scheduled jobs (briefing, alerts, summaries) |
+| `search.js` | Brave Search web search + page reader |
+| `voz.js` | ElevenLabs TTS + STT (multilingual_v2) |
+| `ferramentas.js` | Generic connector to ferramentas.jacometo.com.br |
+| `arquivo.js` | Remote ARQUIVO agent integration |
+
+## How to Add Things
+
+### New tool
+1. Implement function in existing or new `src/module.js`
+2. Import in `src/skills.js`
+3. Add to `TOOLS` array with `name`, `description`, `input_schema`
+4. Add `case 'tool_name':` in `executeTool()`
+
+### New Playwright site
+1. Add entry in `src/playwright/sites.js` → `SITES`
+2. Add credentials in `.env`
+3. Create automation functions in `src/playwright/automacoes.js`
+4. Expose as tool in `skills.js`
+
+### New cron job
+1. Create `async function cronName()` in `src/crons.js`
+2. Add `if (timeMatch(H, M)) await cronName();` in `checkSchedule()`
+
+## SOUL Rules (NEVER violate)
+
+```
+NEVER execute financial actions without explicit OK from Adriano
+NEVER delete CRM/Pipedrive/any system data
+NEVER expose tokens/passwords/keys in chat or logs
+ALWAYS point assertions to output files or verifiable links
+ALWAYS require OK for external actions (messages, campaigns, deploys)
+Pipedrive labels are ENUM → always use numeric ID (443-451)
+Cobranca activities → user_id 15830108 (never change)
 ```
 
-**Variáveis necessárias:**
+## Known Issues / Duplicates
+
+- `skills.js` has TWO `executeTool()` definitions (lines ~699 and ~858) — the second is a legacy duplicate with different tools. Should be consolidated.
+- `index.js` registers voice/audio handlers twice (once via `voice.js` imports, once via `voz.js` dynamic imports) — potential double-processing.
+- `voz.js` and `voice.js` coexist — `voz.js` is the main module used by skills/commands, `voice.js` is imported in `index.js` for TTS/STT.
+
+## Env Vars (critical ones)
+
 ```
-# Backend .env
-SUPABASE_URL=https://xxx.supabase.co
-SUPABASE_SERVICE_KEY=eyJ...   ← service_role key (nunca expor no frontend)
-
-# Frontend .env.local
-NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...   ← anon key (pública, só leitura + CRUD clientes)
+TELEGRAM_TOKEN, ALLOWED_USER_IDS, ANTHROPIC_API_KEY
+PIPEDRIVE_TOKEN_JACOMETO, PIPEDRIVE_DOMAIN_JACOMETO
+CHATWOOT_TOKEN_JACOMETO, CHATWOOT_TOKEN_ORBE, CHATWOOT_SECRET_*
+META_APP_TOKEN_JACOMETO, META_APP_TOKEN_ORBE, META_AD_ACCOUNT_*
+GOOGLE_ADS_DEVELOPER_TOKEN, GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_*
+TIKTOK_ACCESS_TOKEN, TIKTOK_REFRESH_TOKEN, TIKTOK_ADVERTISER_ORBE
+ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID
+BRAVE_SEARCH_API_KEY
+QUIVER_USER/PASS, ATM_USER/PASS, NDN_USER/PASS
+ARQUIVO_URL, ARQUIVO_TOKEN
 ```
-
-**Modo sem Supabase:** Se `SUPABASE_URL` não estiver no `.env`, o `database.js` opera silenciosamente sem erro — o sistema funciona normalmente, apenas sem histórico persistente.
-
-## O que NÃO fazer
-
-- ❌ Nunca commitar `credentials.json`, `.env`, `config/credenciais.json`
-- ❌ Nunca hardcodar senhas nos jobs — usar sempre `getCred()`
-- ❌ Nunca usar `export` CSV no Yelum — causa logout da sessão
-- ❌ Nunca acessar `brportal.chubb.com` para financeiro — usar sempre `sso.chubbnet.com`
-- ❌ Nunca fazer login na Tokio com código do corretor — usar CPF (85721611987)
