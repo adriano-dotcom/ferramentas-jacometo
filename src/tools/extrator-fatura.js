@@ -9,6 +9,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import dotenv from 'dotenv';
 dotenv.config();
 
+import { supabase } from '../lib/supabase.js';
+
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ── REGRAS POR SEGURADORA ─────────────────────────────────────────────────────
@@ -92,18 +94,49 @@ function getRegra(seguradora, ramo) {
  * @param {string} [ramo] — ramo para AXA (rctr-c ou rc-dc)
  * @returns {Promise<{ok: boolean, dados?: object, erro?: string}>}
  */
+/**
+ * Busca casos de erro anteriores para a seguradora no Supabase.
+ * Retorna string formatada para injetar no prompt.
+ */
+async function buscarCasosErro(seguradora) {
+  try {
+    const { data } = await supabase
+      .from('regras_seguradora')
+      .select('dados_errados, dados_corretos, descricao')
+      .eq('seguradora', seguradora)
+      .eq('tipo', 'caso_erro')
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (!data || data.length === 0) return '';
+
+    const exemplos = data.map((r, i) => {
+      const errado = JSON.stringify(r.dados_errados);
+      const correto = JSON.stringify(r.dados_corretos);
+      return `Exemplo ${i + 1}: O extrator retornou ${errado} mas o correto era ${correto}. (${r.descricao || ''})`;
+    }).join('\n');
+
+    return `\n\nAPRENDIZADO COM ERROS ANTERIORES — Evite repetir estes erros:\n${exemplos}\n`;
+  } catch {
+    return '';
+  }
+}
+
 export async function extrairDadosFatura(pdfBuffer, seguradora, ramo) {
   const regra = getRegra(seguradora, ramo);
   if (!regra) {
     return { ok: false, erro: `Seguradora desconhecida: ${seguradora}` };
   }
 
+  // Busca casos de erro anteriores para injetar no prompt
+  const casosErro = await buscarCasosErro(seguradora);
+
   const prompt = `Você é um assistente especializado em extrair dados de faturas de seguros de transporte.
 
 Analise o PDF da fatura e extraia os seguintes campos:
 
 ${regra}
-
+${casosErro}
 REGRAS GERAIS:
 - Valores monetários: retorne como número (float), sem R$, sem pontos de milhar. Ex: 1234.56
 - Datas: retorne sempre no formato DD/MM/YYYY

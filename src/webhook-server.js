@@ -10,6 +10,8 @@ import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { processarWebhookChatwoot } from './gerente.js';
 import { EMPRESAS, identificarEmpresaPorWebhook } from './empresas.js';
+import faturasRouter from './routes/faturas.js';
+import { getStatus as getWatcherStatus } from './jobs/drive-watcher.js';
 
 dotenv.config();
 
@@ -99,6 +101,14 @@ function notificarTelegram(empresa, event, body, resultado) {
     global.jarvisTelegramBot.sendMessage(global.jarvisAdminChatId, msg, { parse_mode: 'Markdown' });
   }
 }
+
+// ─── FATURAS API ─────────────────────────────────────────────────────────────
+
+app.use('/api/faturas', faturasRouter);
+
+app.get('/api/drive-watcher/status', (req, res) => {
+  res.json(getWatcherStatus());
+});
 
 // ─── HEALTH ───────────────────────────────────────────────────────────────────
 

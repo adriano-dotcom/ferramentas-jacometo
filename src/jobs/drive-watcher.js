@@ -15,6 +15,8 @@ import fs from 'fs';
 import dotenv from 'dotenv';
 dotenv.config();
 
+import { supabase } from '../lib/supabase.js';
+
 const CREDENTIALS_PATH = process.env.GOOGLE_CREDENTIALS_PATH || './credentials.json';
 const TOKEN_PATH       = './token.json';
 const FOLDER_ID        = process.env.DRIVE_FOLDER_FATURAS;
@@ -97,6 +99,28 @@ function detectarSeguradora(nomeArquivo) {
   return null;
 }
 
+// ── LOG NO SUPABASE ──────────────────────────────────────────────────────────
+
+async function logFatura(dados) {
+  try {
+    const { data, error } = await supabase.from('faturas_log').insert(dados).select('id').single();
+    if (error) console.warn(`  ⚠️ Log Supabase falhou: ${error.message}`);
+    return data?.id || null;
+  } catch (err) {
+    console.warn(`  ⚠️ Log Supabase erro: ${err.message}`);
+    return null;
+  }
+}
+
+async function atualizarLog(logId, dados) {
+  if (!logId) return;
+  try {
+    await supabase.from('faturas_log').update({ ...dados, updated_at: new Date().toISOString() }).eq('id', logId);
+  } catch (err) {
+    console.warn(`  ⚠️ Update log falhou: ${err.message}`);
+  }
+}
+
 // ── PROCESSAR PDF ─────────────────────────────────────────────────────────────
 
 async function processarPDF(drive, arquivo) {
@@ -104,8 +128,18 @@ async function processarPDF(drive, arquivo) {
   console.log(`\n📄 Processando: ${name}`);
 
   const seguradora = detectarSeguradora(name);
+
+  // Cria registro no log imediatamente
+  const logId = await logFatura({
+    arquivo: name,
+    seguradora: seguradora || '?',
+    status: 'processando',
+    arquivo_drive_id: id,
+  });
+
   if (!seguradora) {
     console.log(`  ⚠️ Seguradora não detectada no nome: ${name}`);
+    await atualizarLog(logId, { status: 'erro', erro_tipo: 'desconhecido', erro_mensagem: 'Seguradora não detectada no nome do arquivo' });
     await moverParaSubpasta(drive, id, 'Erros');
     await marcarProcessado(drive, id);
     stats.totalErros++;
@@ -127,6 +161,7 @@ async function processarPDF(drive, arquivo) {
     console.log(`  ⬇️ Baixado: ${Math.round(pdfBuffer.length / 1024)} KB`);
   } catch (err) {
     console.error(`  ❌ Erro ao baixar: ${err.message}`);
+    await atualizarLog(logId, { status: 'erro', erro_tipo: 'drive', erro_mensagem: `Erro ao baixar: ${err.message}`, erro_raw: err.stack });
     stats.totalErros++;
     return;
   }
@@ -138,6 +173,7 @@ async function processarPDF(drive, arquivo) {
     const ext = await extrairDadosFatura(pdfBuffer, seguradora);
     if (!ext.ok) {
       console.log(`  ❌ Extração falhou: ${ext.erro}`);
+      await atualizarLog(logId, { status: 'erro', erro_tipo: 'extracao', erro_mensagem: ext.erro, dados_extraidos: ext.dados || null });
       await moverParaSubpasta(drive, id, 'Erros');
       await marcarProcessado(drive, id);
       stats.totalErros++;
@@ -147,13 +183,16 @@ async function processarPDF(drive, arquivo) {
         segurado: name, seguradora, apolice: ext.dados?.apolice || '—',
         endosso: '—', premio: '—', vencimento: '—', ramo: '—',
         sucesso: false, erro: `Extração falhou: ${ext.erro}`,
+        dadosExtraidos: ext.dados,
       });
       return;
     }
     dadosExtraidos = ext.dados;
+    await atualizarLog(logId, { dados_extraidos: dadosExtraidos });
     console.log(`  🔍 Extraído: ${seguradora} apólice ${dadosExtraidos.apolice} prêmio ${dadosExtraidos.premio}`);
   } catch (err) {
     console.error(`  ❌ Erro na extração: ${err.message}`);
+    await atualizarLog(logId, { status: 'erro', erro_tipo: 'extracao', erro_mensagem: err.message, erro_raw: err.stack });
     stats.totalErros++;
     return;
   }
@@ -169,13 +208,27 @@ async function processarPDF(drive, arquivo) {
     resultado = { sucesso: false, mensagem: err.message };
   }
 
-  // 4. Move para subpasta
+  // 4. Atualiza log + move para subpasta
   const destino = resultado.sucesso ? 'Processados' : 'Erros';
   await moverParaSubpasta(drive, id, destino);
   await marcarProcessado(drive, id);
 
-  if (resultado.sucesso) stats.totalProcessados++;
-  else stats.totalErros++;
+  if (resultado.sucesso) {
+    stats.totalProcessados++;
+    await atualizarLog(logId, {
+      status: 'sucesso',
+      quiver_job_id: resultado.jobId || null,
+    });
+  } else {
+    stats.totalErros++;
+    const erroMsg = resultado.resultado?.falhas?.[0]?.erro || resultado.mensagem;
+    await atualizarLog(logId, {
+      status: 'erro',
+      erro_tipo: 'quiver',
+      erro_mensagem: erroMsg,
+      quiver_job_id: resultado.jobId || null,
+    });
+  }
 
   stats.ultimoArquivo = name;
 
@@ -199,6 +252,7 @@ async function processarPDF(drive, arquivo) {
       ramo: dadosExtraidos.ramo || '—',
       sucesso: resultado.sucesso,
       erro: resultado.sucesso ? null : erroMsg,
+      dadosExtraidos: resultado.sucesso ? null : dadosExtraidos,
     });
   } catch (err) {
     console.error(`  ⚠️ Email falhou: ${err.message}`);

@@ -63,6 +63,7 @@ export async function enviarConfirmacao(dados) {
     ramo = '—',
     sucesso,
     erro,
+    dadosExtraidos,
   } = dados;
 
   const emoji = sucesso ? '✅' : '❌';
@@ -71,7 +72,7 @@ export async function enviarConfirmacao(dados) {
 
   const assunto = sucesso
     ? `✅ Fatura cadastrada — ${seguradora.toUpperCase()} Apólice ${apolice}`
-    : `❌ Erro ao cadastrar — ${seguradora.toUpperCase()} Apólice ${apolice}`;
+    : `❌ Fatura com erro — ${seguradora.toUpperCase()} ${segurado}`;
 
   const premioFmt = typeof premio === 'number'
     ? `R$ ${premio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
@@ -119,6 +120,19 @@ export async function enviarConfirmacao(dados) {
       <td style="padding: 10px 14px; border: 1px solid #dee2e6; color: ${corStatus}; font-weight: 600;">${status}</td>
     </tr>
   </table>
+
+  ${!sucesso && dadosExtraidos ? `
+  <h3 style="margin-top: 20px; color: #dc2626;">Dados extraídos pelo Claude Vision</h3>
+  <pre style="background: #f8f9fa; padding: 12px; border-radius: 6px; font-size: 13px; overflow-x: auto;">${JSON.stringify(dadosExtraidos, null, 2)}</pre>
+
+  <p style="margin-top: 16px;">
+    <a href="https://ferramentas.jacometo.com.br/ferramentas/faturas/erros"
+       style="display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
+      Corrigir no painel →
+    </a>
+  </p>
+  <p style="color: #666; font-size: 13px;">Acesse o painel, corrija os dados e reprocesse.</p>
+  ` : ''}
 
   <p style="color: #999; font-size: 12px; margin-top: 24px;">
     Enviado automaticamente por Jarvis OS — Jacometo Corretora de Seguros
