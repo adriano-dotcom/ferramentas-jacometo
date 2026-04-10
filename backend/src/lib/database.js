@@ -38,6 +38,7 @@ const META = {
   essor:          { nome: 'Essor',             responsavel: 'João' },
   metlife:        { nome: 'MetLife',           responsavel: 'João' },
   unimed_seguros: { nome: 'Unimed Seguros',    responsavel: 'João' },
+  porto_seguro:   { nome: 'Porto Seguro',       responsavel: 'Adriano' },
   unimed_boletos: { nome: 'Unimed Boletos',    responsavel: 'Giovana' },
   unimed_grupos:  { nome: 'Unimed Grupos',     responsavel: 'Giovana' },
   quiver:         { nome: 'Quiver Faturas',    responsavel: 'Giovana' },

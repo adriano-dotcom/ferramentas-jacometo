@@ -26,6 +26,7 @@ export default function ClientesPage() {
   const [busca, setBusca]           = useState('')
 
   async function carregar() {
+    if (!supabase) { setLoading(false); return }
     setLoading(true)
     let q = supabase.from('clientes_plano_hospitalar').select('*').order('nome')
     if (filtroDia !== null) q = q.eq('vencimento', filtroDia)
@@ -52,6 +53,7 @@ export default function ClientesPage() {
     setSalvando(true); setMsg('')
     const payload = { ...form, cnpj: form.cnpj.replace(/\D/g, '') }
     let err
+    if (!supabase) { setMsg('Supabase não configurado.'); setSalvando(false); return }
     if (editando) {
       const { error } = await supabase.from('clientes_plano_hospitalar').update(payload).eq('id', editando.id)
       err = error
@@ -68,11 +70,13 @@ export default function ClientesPage() {
   }
 
   async function toggleAtivo(c: ClientePlanoHospitalar) {
+    if (!supabase) return
     await supabase.from('clientes_plano_hospitalar').update({ ativo: !c.ativo }).eq('id', c.id)
     carregar()
   }
 
   async function excluir(c: ClientePlanoHospitalar) {
+    if (!supabase) return
     if (!confirm(`Excluir ${c.nome}?`)) return
     await supabase.from('clientes_plano_hospitalar').delete().eq('id', c.id)
     carregar()

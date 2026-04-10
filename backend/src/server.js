@@ -29,6 +29,7 @@ const upload = multer({
 const { routeGetConfig, routePostConfig, routeTestConfig } = require('./jobs/config')
 const routeUnimedGrupos              = require('./jobs/unimed-grupos')
 const routeUnimedBoletos             = require('./jobs/unimed-boletos')
+const { getJobStatus: statusUnimedBol } = routeUnimedBoletos
 const routeQuiverFaturas             = require('./jobs/quiver-faturas')
 const routeQuiverFaturasTransporte   = require('./jobs/quiver-faturas-transporte')
 const { getJobStatus: statusTransporte } = routeQuiverFaturasTransporte
@@ -45,7 +46,8 @@ const routeYelum     = require('./jobs/yelum-inadimplentes')
 const routeMitsui    = require('./jobs/mitsui-inadimplentes')
 const routeEssor     = require('./jobs/essor-inadimplentes')
 const routeMetlife   = require('./jobs/metlife-inadimplentes')
-const routeUnimedSeg = require('./jobs/unimed-seguros-inadimplentes')
+const routeUnimedSeg  = require('./jobs/unimed-seguros-inadimplentes')
+const routePortoSeguro = require('./jobs/porto-seguro-inadimplentes')
 const { getJobStatus: statusAllianz   } = routeAllianz
 const { getJobStatus: statusTokio     } = routeTokio
 const { getJobStatus: statusAxa       } = routeAxa
@@ -57,6 +59,10 @@ const { getJobStatus: statusMitsui    } = routeMitsui
 const { getJobStatus: statusEssor     } = routeEssor
 const { getJobStatus: statusMetlife   } = routeMetlife
 const { getJobStatus: statusUnimedSeg } = routeUnimedSeg
+const { getJobStatus: statusPortoSeguro } = routePortoSeguro
+
+// Monitor de Averbacao
+const { iniciarMonitor } = require('./jobs/monitor-averbacao')
 
 // ── Histórico e dados (Supabase) ─────────────────────────────────────────────
 app.get('/api/historico', async (req, res) => {
@@ -78,7 +84,7 @@ app.post('/api/config',        routePostConfig)
 app.post('/api/config/testar', routeTestConfig)
 
 app.post('/api/unimed-grupos/processar',             upload.single('arquivo'),  routeUnimedGrupos)
-app.post('/api/unimed-boletos/executar',             routeUnimedBoletos)
+app.post('/api/unimed-boletos/executar',             routeUnimedBoletos);    app.get('/api/unimed-boletos/status/:jobId',       statusUnimedBol)
 app.post('/api/quiver-faturas/cadastrar',            upload.array('arquivos'),  routeQuiverFaturas)
 app.post('/api/quiver-faturas-transporte/cadastrar', upload.array('arquivos'),  routeQuiverFaturasTransporte)
 app.get('/api/quiver-faturas-transporte/status/:jobId', statusTransporte)
@@ -97,9 +103,19 @@ app.post('/api/mitsui-inadimplentes/executar',              routeMitsui);     ap
 app.post('/api/essor-inadimplentes/executar',               routeEssor);      app.get('/api/essor-inadimplentes/status/:jobId',      statusEssor)
 app.post('/api/metlife-inadimplentes/executar',             routeMetlife);    app.get('/api/metlife-inadimplentes/status/:jobId',    statusMetlife)
 app.post('/api/unimed-seguros-inadimplentes/executar',      routeUnimedSeg);  app.get('/api/unimed-seguros-inadimplentes/status/:jobId', statusUnimedSeg)
+app.post('/api/porto-seguro-inadimplentes/executar',       routePortoSeguro); app.get('/api/porto-seguro-inadimplentes/status/:jobId',  statusPortoSeguro)
+
+// Monitor de Averbacao
+app.use('/api/monitor-averbacao', require('./routes/monitor-averbacao'))
+
+// Pipedrive → Monitor de Averbacao (webhook)
+app.use('/api/pipedrive', require('./routes/pipedrive'))
 
 app.listen(PORT, () => {
   log.ok(`Backend RPA Jacometo — porta ${PORT}`)
   log.ok(`Playwright headless: ${process.env.HEADLESS !== 'false'}`)
   log.ok(`Frontend: ${process.env.FRONTEND_URL || '*'}`)
+
+  // Inicia monitor de averbacao (cron 08:00 e 14:00)
+  iniciarMonitor()
 })

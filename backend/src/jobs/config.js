@@ -111,6 +111,12 @@ const PADRAO = {
     },
   },
 
+  porto_seguro: {
+    label:  'Porto Seguro',
+    url:    'https://corretor.portoseguro.com.br/corretoronline/',
+    campos: { usuario: '', senha: '', susep: '' },
+  },
+
   // ══════════════════════════════════════════════════════════════════════
   // GIACOMET — mesmas seguradoras, credenciais diferentes
   // ══════════════════════════════════════════════════════════════════════
@@ -157,6 +163,29 @@ const PADRAO = {
     label:  'Giacomet — MetLife Vida e Prev',
     url:    'https://login.metlife.com.br/login/dynamic/Login.action',
     campos: { usuario:'000232144336', senha:'@Giacomet2023b' },
+  },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // PIPEDRIVE — integracao webhook → monitor de averbacao
+  // ══════════════════════════════════════════════════════════════════════
+  pipedrive: {
+    label:  'Pipedrive — Integracao',
+    url:    'https://jacometo.pipedrive.com',
+    campos: { api_token: '', pipeline_ids: '', campo_averbacao: '', campo_cnpj: '', email_geral: 'jacometo@jacometo.com.br' },
+  },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // MONITOR DE AVERBACAO — portais ATM Tec e NDD Averba
+  // ══════════════════════════════════════════════════════════════════════
+  atm_averba: {
+    label:  'ATM Tec — Monitor Averbacao',
+    url:    'https://portal.atmtec.com.br',
+    campos: { usuario: '', senha: '' },
+  },
+  ndd_averba: {
+    label:  'NDD Averba — Monitor Averbacao',
+    url:    'https://broker.nddaverba.com.br',
+    campos: { usuario: '', senha: '' },
   },
 }
 

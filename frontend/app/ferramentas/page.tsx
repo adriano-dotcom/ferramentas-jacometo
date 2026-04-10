@@ -12,15 +12,6 @@ const USUARIO_CORES: Record<string, string> = {
 
 const FERRAMENTAS = [
   {
-    slug: 'unimed-grupos',
-    nome: 'Unimed — Grupos Vida',
-    descricao: 'Atualiza lista de grupos e notifica a equipe por email',
-    responsavel: 'Giovana',
-    seguradora: 'Unimed',
-    tipo: 'upload',
-    status: 'ativo',
-  },
-  {
     slug: 'unimed-boletos',
     nome: 'Unimed — Boletos Vida',
     descricao: 'Baixa 2ª via de boletos por grupo e salva no Drive',
@@ -146,6 +137,15 @@ const FERRAMENTAS = [
     tipo: 'automatico',
     status: 'ativo',
   },
+  {
+    slug: 'porto-seguro-inadimplentes',
+    nome: 'Porto Seguro — Inadimplentes',
+    descricao: 'Corretor Online → Parcelas vencidas → CSV + email',
+    responsavel: 'Adriano',
+    seguradora: 'Porto Seguro',
+    tipo: 'automatico',
+    status: 'ativo',
+  },
   // ══════════════════════════════════════════════════════════════
   // GIACOMET — Parcelas em Atraso
   // ══════════════════════════════════════════════════════════════
@@ -204,20 +204,20 @@ const FERRAMENTAS = [
     status: 'ativo',
   },
   {
+    slug: 'monitor-averbacao',
+    nome: 'Monitor de Averbacao',
+    descricao: 'ATM Tec + NDD Averba · Verifica cadastro e averbacoes de segurados de transporte',
+    responsavel: 'Giovana',
+    seguradora: 'Transporte',
+    tipo: 'automatico',
+    status: 'ativo',
+  },
+  {
     slug: 'plano-hospitalar',
     nome: 'Plano Hospitalar — Boletos',
     descricao: 'SolusWeb · 30+ clientes · boleto + fatura → Google Drive · email resumo',
     responsavel: 'Bárbara',
     seguradora: 'Saúde',
-    tipo: 'automatico',
-    status: 'ativo',
-  },
-  {
-    slug: 'faturas',
-    nome: '📑 Faturas Transporte',
-    descricao: 'Log completo de faturas processadas — sucesso, erros e correção com reprocessamento',
-    responsavel: 'Giovana',
-    seguradora: 'Todas',
     tipo: 'automatico',
     status: 'ativo',
   },

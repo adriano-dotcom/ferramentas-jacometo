@@ -33,6 +33,8 @@ export default function HistoricoPage() {
   const [autoRefresh, setAutoRefresh] = useState(true)
 
   const carregar = useCallback(async () => {
+    if (!supabase) { setLoading(false); return }
+
     let q = supabase
       .from('jobs_history')
       .select('*')
@@ -121,7 +123,9 @@ export default function HistoricoPage() {
         </div>
 
         {/* Lista de jobs */}
-        {loading ? (
+        {!supabase ? (
+          <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '3rem', fontSize: 14 }}>Supabase não configurado. O histórico ficará disponível quando o banco de dados for ativado.</div>
+        ) : loading ? (
           <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '3rem', fontSize: 14 }}>Carregando histórico...</div>
         ) : jobs.length === 0 ? (
           <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '3rem', fontSize: 14 }}>Nenhum job encontrado. Execute uma automação para ver o histórico aqui.</div>

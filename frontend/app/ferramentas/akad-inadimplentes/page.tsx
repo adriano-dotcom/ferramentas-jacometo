@@ -28,7 +28,7 @@ export default function Page() {
     }
   }
 
-  const emProcesso = job && job.status !== 'concluido' && job.status !== 'erro_critico'
+  const emProcesso = job && job.status !== 'concluido' && job.status !== 'erro_critico';
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
