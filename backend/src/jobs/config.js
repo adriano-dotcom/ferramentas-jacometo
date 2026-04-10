@@ -36,32 +36,32 @@ const PADRAO = {
   allianz: {
     label:  'Allianz — AllianzNet',
     url:    'https://www.allianznet.com.br/ngx-epac/public/home',
-    campos: { usuario:'BA022460', senha:'J@co9000Jacome' },
+    campos: { usuario:'BA022460', senha:'J@co9000Jacome', cron:'' },
   },
   tokio: {
     label:  'Tokio Marine',
     url:    'https://ssoportais3.tokiomarine.com.br/openam/XUI/?realm=TOKIOLFR',
-    campos: { cpf:'85721611987', senha:'Jacometo9@12' },
+    campos: { cpf:'85721611987', senha:'Jacometo9@12', cron:'' },
   },
   axa: {
     label:  'AXA',
     url:    'https://e-solutions.axa.com.br',
-    campos: { email:'jacometo@jacometoseguros.com.br', senha:'Jacometo@8JACO@@6' },
+    campos: { email:'jacometo@jacometoseguros.com.br', senha:'Jacometo@8JACO@@6', cron:'' },
   },
   chubb: {
     label:  'Chubb — ChubbNet',
     url:    'https://sso.chubbnet.com',
-    campos: { email:'jacometo@jacometo.com.br', senha:'Jaco9000!' },
+    campos: { email:'jacometo@jacometo.com.br', senha:'Jaco9000!', cron:'' },
   },
   sompo: {
     label:  'Sompo',
     url:    'https://corretor.sompo.com.br/PortalCorretor_Th/Login.aspx',
-    campos: { usuario:'030322100000', senha:'Jaco7000' },
+    campos: { usuario:'030322100000', senha:'Jaco7000', cron:'' },
   },
   akad: {
     label:  'AKAD Digital',
     url:    'https://digital.akadseguros.com.br',
-    campos: { cpf:'85721611987', senha:'@Jaco9003#' },
+    campos: { cpf:'85721611987', senha:'@Jaco9003#', cron:'' },
   },
   yelum: {
     label:  'Yelum Seguros',
@@ -70,32 +70,33 @@ const PADRAO = {
       cpf:        '85721611987',
       senha:      'Wazoptliksthrk1236',
       portal_url: 'https://novomeuespacocorretor.yelumseguros.com.br/lp/payment-management',
+      cron:       '',
     },
   },
   mitsui: {
     label:  'Mitsui (MSIG)',
     url:    'https://www4.msig.com.br/kitonline/',
-    campos: { usuario:'0118422b', senha:'Jaco9000@' },
+    campos: { usuario:'0118422b', senha:'Jaco9000@', cron:'' },
   },
   essor: {
     label:  'Essor',
     url:    'https://portal.essor.com.br',
-    campos: { cnpj:'16959586000156', senha:'@Jaco900232' },
+    campos: { cnpj:'16959586000156', senha:'@Jaco900232', cron:'' },
   },
   metlife: {
     label:  'MetLife',
     url:    'https://login.metlife.com.br/login/dynamic/Login.action',
-    campos: { usuario:'202053374', senha:'@Jaco9001' },
+    campos: { usuario:'202053374', senha:'@Jaco9001', cron:'' },
   },
   unimed_seguros: {
     label:  'Unimed Seguros',
     url:    'https://portal.segurosunimed.com.br',
-    campos: { cpf:'85721611987', senha:'@Jaco9001' },
+    campos: { cpf:'85721611987', senha:'@Jaco9001', cron:'' },
   },
   unimed_boletos: {
     label:  'Unimed — Boletos Vida',
     url:    'https://portal.segurosunimed.com.br',
-    campos: { cpf:'85721611987', senha:'@Jaco9001' },
+    campos: { cpf:'85721611987', senha:'@Jaco9001', cron:'' },
   },
   quiver: {
     label:  'Quiver PRO',
@@ -114,7 +115,7 @@ const PADRAO = {
   porto_seguro: {
     label:  'Porto Seguro',
     url:    'https://corretor.portoseguro.com.br/corretoronline/',
-    campos: { usuario: '', senha: '', susep: '' },
+    campos: { usuario: '', senha: '', susep: '', cron: '' },
   },
 
   // ══════════════════════════════════════════════════════════════════════

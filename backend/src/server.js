@@ -64,6 +64,9 @@ const { getJobStatus: statusPortoSeguro } = routePortoSeguro
 // Monitor de Averbacao
 const { iniciarMonitor } = require('./jobs/monitor-averbacao')
 
+// Scheduler (cron de inadimplentes)
+const { iniciarScheduler, recarregar: recarregarCron, listarAgendamentos } = require('./lib/scheduler')
+
 // ── Histórico e dados (Supabase) ─────────────────────────────────────────────
 app.get('/api/historico', async (req, res) => {
   const { seguradora, responsavel, limite } = req.query
@@ -108,6 +111,10 @@ app.post('/api/porto-seguro-inadimplentes/executar',       routePortoSeguro); ap
 // Monitor de Averbacao
 app.use('/api/monitor-averbacao', require('./routes/monitor-averbacao'))
 
+// Cron — agendamentos automáticos
+app.get('/api/cron', (req, res) => res.json({ ok: true, agendamentos: listarAgendamentos() }))
+app.post('/api/cron/recarregar', (req, res) => { recarregarCron(); res.json({ ok: true, agendamentos: listarAgendamentos() }) })
+
 // Pipedrive → Monitor de Averbacao (webhook)
 app.use('/api/pipedrive', require('./routes/pipedrive'))
 
@@ -118,4 +125,7 @@ app.listen(PORT, () => {
 
   // Inicia monitor de averbacao (cron 08:00 e 14:00)
   iniciarMonitor()
+
+  // Inicia scheduler de inadimplentes (horários do painel)
+  iniciarScheduler()
 })
