@@ -61,8 +61,9 @@ const { getJobStatus: statusMetlife   } = routeMetlife
 const { getJobStatus: statusUnimedSeg } = routeUnimedSeg
 const { getJobStatus: statusPortoSeguro } = routePortoSeguro
 
-// Monitor de Averbacao
-const { iniciarMonitor } = require('./jobs/monitor-averbacao')
+// Monitor de Averbacao (pode não existir ainda)
+let iniciarMonitor = () => {}
+try { ({ iniciarMonitor } = require('./jobs/monitor-averbacao')) } catch { log.warn('Monitor de averbação não encontrado — pulando.') }
 
 // Scheduler (cron de inadimplentes)
 const { iniciarScheduler, recarregar: recarregarCron, listarAgendamentos } = require('./lib/scheduler')
@@ -108,15 +109,15 @@ app.post('/api/metlife-inadimplentes/executar',             routeMetlife);    ap
 app.post('/api/unimed-seguros-inadimplentes/executar',      routeUnimedSeg);  app.get('/api/unimed-seguros-inadimplentes/status/:jobId', statusUnimedSeg)
 app.post('/api/porto-seguro-inadimplentes/executar',       routePortoSeguro); app.get('/api/porto-seguro-inadimplentes/status/:jobId',  statusPortoSeguro)
 
-// Monitor de Averbacao
-app.use('/api/monitor-averbacao', require('./routes/monitor-averbacao'))
+// Monitor de Averbacao (pode não existir ainda)
+try { app.use('/api/monitor-averbacao', require('./routes/monitor-averbacao')) } catch { /* módulo não existe ainda */ }
 
 // Cron — agendamentos automáticos
 app.get('/api/cron', (req, res) => res.json({ ok: true, agendamentos: listarAgendamentos() }))
 app.post('/api/cron/recarregar', (req, res) => { recarregarCron(); res.json({ ok: true, agendamentos: listarAgendamentos() }) })
 
-// Pipedrive → Monitor de Averbacao (webhook)
-app.use('/api/pipedrive', require('./routes/pipedrive'))
+// Pipedrive → Monitor de Averbacao (webhook, pode não existir ainda)
+try { app.use('/api/pipedrive', require('./routes/pipedrive')) } catch { /* módulo não existe ainda */ }
 
 app.listen(PORT, () => {
   log.ok(`Backend RPA Jacometo — porta ${PORT}`)
