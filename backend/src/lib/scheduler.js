@@ -1,7 +1,12 @@
 // src/lib/scheduler.js
 // Agendador de jobs automáticos — usa node-cron
-// Horários configuráveis por seguradora via painel de configurações
-// Roda apenas seg-sex (dias úteis)
+// Horários e dias da semana configuráveis por seguradora via painel de configurações
+//
+// Formato do campo "cron" no painel:
+//   "seg,qua,sex@08:00"         → Roda seg, qua e sex às 08:00
+//   "ter,qui@08:00,14:00"       → Roda ter e qui às 08:00 e 14:00
+//   "seg,ter,qua,qui,sex@09:30" → Roda seg a sex (dias úteis) às 09:30
+//   ""                          → Desativado
 
 const cron = require('node-cron')
 const log  = require('./logger')
@@ -26,7 +31,34 @@ const JOBS_AGENDAVEIS = {
   plano_hospitalar: '/api/plano-hospitalar/executar',
 }
 
+// Giacomet — mesmas rotas, corretora injetada no body
+const JOBS_AGENDAVEIS_GIACOMET = {
+  giacomet_allianz:      '/api/giacomet-allianz-inadimplentes/executar',
+  giacomet_akad:         '/api/giacomet-akad-inadimplentes/executar',
+  giacomet_yelum:        '/api/giacomet-yelum-inadimplentes/executar',
+  giacomet_mitsui:       '/api/giacomet-mitsui-inadimplentes/executar',
+  giacomet_unimed:       '/api/giacomet-unimed-inadimplentes/executar',
+  giacomet_metlife:      '/api/giacomet-metlife-inadimplentes/executar',
+  giacomet_tokio:        '/api/giacomet-tokio-inadimplentes/executar',
+  giacomet_axa:          '/api/giacomet-axa-inadimplentes/executar',
+  giacomet_chubb:        '/api/giacomet-chubb-inadimplentes/executar',
+  giacomet_sompo:        '/api/giacomet-sompo-inadimplentes/executar',
+  giacomet_essor:        '/api/giacomet-essor-inadimplentes/executar',
+  giacomet_porto_seguro: '/api/giacomet-porto-seguro-inadimplentes/executar',
+}
+
+const TODOS_JOBS = { ...JOBS_AGENDAVEIS, ...JOBS_AGENDAVEIS_GIACOMET }
+
 const PORT = process.env.PORT || 3001
+
+// ── Mapa de dia abreviado → número cron ──────────────────────────────────────
+const DIA_PARA_CRON = {
+  dom: 0, seg: 1, ter: 2, qua: 3, qui: 4, sex: 5, sab: 6,
+}
+
+const DIAS_LABELS = {
+  0: 'dom', 1: 'seg', 2: 'ter', 3: 'qua', 4: 'qui', 5: 'sex', 6: 'sab',
+}
 
 // ── Dispara job via HTTP local ───────────────────────────────────────────────
 function dispararJob(chave, rota) {
@@ -59,24 +91,59 @@ function dispararJob(chave, rota) {
   })
 }
 
-// ── Converte "HH:MM" para expressão cron (seg-sex) ──────────────────────────
-function horarioParaCron(horario) {
-  const match = horario.match(/^(\d{1,2}):(\d{2})$/)
-  if (!match) return null
-  const hora = parseInt(match[1])
-  const min  = parseInt(match[2])
-  if (hora < 0 || hora > 23 || min < 0 || min > 59) return null
-  return `${min} ${hora} * * 1-5` // seg(1) a sex(5)
-}
-
-// ── Múltiplos horários: "08:00,14:00" → array de crons ──────────────────────
-function parsearHorarios(valor) {
+// ── Parser do novo formato: "seg,qua,sex@08:00,14:00" ──────────────────────
+function parsearCronConfig(valor) {
   if (!valor || typeof valor !== 'string') return []
-  return valor.split(',')
-    .map(h => h.trim())
-    .filter(Boolean)
-    .map(h => ({ horario: h, cron: horarioParaCron(h) }))
-    .filter(h => h.cron)
+
+  const str = valor.trim().toLowerCase()
+  if (!str) return []
+
+  // Formato: DIAS@HORARIOS
+  // Suporte legado: só "HH:MM" sem @ → assume seg-sex
+  let diasPart, horariosPart
+
+  if (str.includes('@')) {
+    const parts = str.split('@')
+    diasPart = parts[0].trim()
+    horariosPart = parts[1].trim()
+  } else {
+    // Formato legado: "08:00" ou "08:00,14:00" → seg-sex
+    diasPart = 'seg,ter,qua,qui,sex'
+    horariosPart = str
+  }
+
+  // Parse dias
+  const diasStr = diasPart.split(',').map(d => d.trim()).filter(Boolean)
+  const diasCron = diasStr
+    .map(d => DIA_PARA_CRON[d])
+    .filter(n => n !== undefined)
+
+  if (diasCron.length === 0) return []
+
+  // Parse horários
+  const horarios = horariosPart.split(',').map(h => h.trim()).filter(Boolean)
+  const resultado = []
+
+  for (const horario of horarios) {
+    const match = horario.match(/^(\d{1,2}):(\d{2})$/)
+    if (!match) continue
+    const hora = parseInt(match[1])
+    const min  = parseInt(match[2])
+    if (hora < 0 || hora > 23 || min < 0 || min > 59) continue
+
+    const diasExpr = diasCron.join(',')
+    const cronExpr = `${min} ${hora} * * ${diasExpr}`
+
+    const diasLabels = diasCron.map(n => DIAS_LABELS[n]).join(',')
+    resultado.push({
+      horario,
+      dias: diasLabels,
+      cron: cronExpr,
+      descricao: `${diasLabels} às ${horario}`,
+    })
+  }
+
+  return resultado
 }
 
 // ── Store de tarefas ativas ──────────────────────────────────────────────────
@@ -94,29 +161,29 @@ function recarregar() {
   pararTodas()
   let total = 0
 
-  for (const [chave, rota] of Object.entries(JOBS_AGENDAVEIS)) {
+  for (const [chave, rota] of Object.entries(TODOS_JOBS)) {
     const cred = getCred(chave)
-    const horarioStr = cred.cron || ''
-    if (!horarioStr) continue
+    const cronStr = cred.cron || ''
+    if (!cronStr) continue
 
-    const horarios = parsearHorarios(horarioStr)
-    if (horarios.length === 0) continue
+    const agendamentos = parsearCronConfig(cronStr)
+    if (agendamentos.length === 0) continue
 
     const tarefas = []
-    for (const { horario, cron: expr } of horarios) {
-      const tarefa = cron.schedule(expr, () => {
-        log.info(`[CRON] Executando ${chave} (agendado ${horario})...`)
+    for (const ag of agendamentos) {
+      const tarefa = cron.schedule(ag.cron, () => {
+        log.info(`[CRON] Executando ${chave} (agendado: ${ag.descricao})...`)
         dispararJob(chave, rota)
       }, { timezone: 'America/Sao_Paulo' })
       tarefas.push(tarefa)
       total++
-      log.info(`[CRON] ${chave} agendado: ${horario} (seg-sex)`)
+      log.info(`[CRON] ${chave} agendado: ${ag.descricao}`)
     }
     tarefasAtivas.set(chave, tarefas)
   }
 
   if (total === 0) {
-    log.info('[CRON] Nenhum job agendado. Configure horários no painel (campo "cron").')
+    log.info('[CRON] Nenhum job agendado. Configure dias e horários no painel (campo "cron").')
   } else {
     log.ok(`[CRON] ${total} agendamento(s) ativo(s).`)
   }
@@ -134,11 +201,18 @@ function iniciarScheduler() {
 
 function listarAgendamentos() {
   const lista = []
-  for (const [chave, rota] of Object.entries(JOBS_AGENDAVEIS)) {
+  for (const [chave, rota] of Object.entries(TODOS_JOBS)) {
     const cred = getCred(chave)
-    const horarioStr = cred.cron || ''
+    const cronStr = cred.cron || ''
+    const agendamentos = parsearCronConfig(cronStr)
     const ativo = tarefasAtivas.has(chave)
-    lista.push({ chave, rota, horario: horarioStr || null, ativo })
+    lista.push({
+      chave,
+      rota,
+      cron: cronStr || null,
+      agendamentos: agendamentos.map(a => a.descricao),
+      ativo,
+    })
   }
   return lista
 }

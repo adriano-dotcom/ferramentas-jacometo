@@ -17,10 +17,186 @@ const ICONE: Record<string, string> = {
   allianz: '🔵', tokio: '🔴', axa: '🔷', chubb: '⬛',
   sompo: '🟦', akad: '🟩', yelum: '🟡', mitsui: '🔶',
   essor: '🟪', metlife: '⚪', unimed_seguros: '🔴', unimed_boletos: '🔴',
-  quiver: '⚙️', plano_hospitalar: '🏥',
+  quiver: '⚙️', plano_hospitalar: '🏥', porto_seguro: '🔵',
   giacomet_yelum: '🟡', giacomet_mitsui: '🔶', giacomet_allianz: '🔵',
   giacomet_unimed: '🔴', giacomet_akad: '🟩', giacomet_aig: '⬜',
   giacomet_berkley: '🟫', giacomet_metlife: '⚪',
+  giacomet_tokio: '🔴', giacomet_axa: '🔷', giacomet_chubb: '⬛',
+  giacomet_sompo: '🟦', giacomet_essor: '🟪', giacomet_porto_seguro: '🔵',
+}
+
+const DIAS_SEMANA = [
+  { cod: 'seg', label: 'Seg' },
+  { cod: 'ter', label: 'Ter' },
+  { cod: 'qua', label: 'Qua' },
+  { cod: 'qui', label: 'Qui' },
+  { cod: 'sex', label: 'Sex' },
+  { cod: 'sab', label: 'Sáb' },
+  { cod: 'dom', label: 'Dom' },
+]
+
+// ── Parser: "seg,qua,sex@08:00,14:00" → { dias: Set, horarios: string[] }
+function parseCron(valor: string) {
+  const dias = new Set<string>()
+  const horarios: string[] = []
+  if (!valor) return { dias, horarios }
+
+  const str = valor.trim().toLowerCase()
+  if (str.includes('@')) {
+    const [diasPart, horasPart] = str.split('@')
+    diasPart.split(',').map(d => d.trim()).filter(Boolean).forEach(d => dias.add(d))
+    horasPart.split(',').map(h => h.trim()).filter(Boolean).forEach(h => horarios.push(h))
+  } else {
+    // Formato legado: só horário → seg-sex
+    ;['seg', 'ter', 'qua', 'qui', 'sex'].forEach(d => dias.add(d))
+    str.split(',').map(h => h.trim()).filter(Boolean).forEach(h => horarios.push(h))
+  }
+  return { dias, horarios }
+}
+
+// ── Serializar: Set + string[] → "seg,qua,sex@08:00"
+function serializeCron(dias: Set<string>, horarios: string[]) {
+  const diasArr = DIAS_SEMANA.filter(d => dias.has(d.cod)).map(d => d.cod)
+  const horasArr = horarios.filter(h => /^\d{1,2}:\d{2}$/.test(h))
+  if (diasArr.length === 0 || horasArr.length === 0) return ''
+  return `${diasArr.join(',')}@${horasArr.join(',')}`
+}
+
+// ── Componente: Editor de agendamento (dias + horários) ───────────────────────
+function CampoCron({ valor, onChange }: { valor: string; onChange: (v: string) => void }) {
+  const parsed = parseCron(valor)
+  const [dias, setDias] = useState<Set<string>>(parsed.dias)
+  const [horarios, setHorarios] = useState<string[]>(parsed.horarios.length > 0 ? parsed.horarios : [''])
+
+  // Sync com valor externo ao expandir card
+  useEffect(() => {
+    const p = parseCron(valor)
+    setDias(p.dias)
+    setHorarios(p.horarios.length > 0 ? p.horarios : [''])
+  }, [valor])
+
+  function toggleDia(cod: string) {
+    const novo = new Set(dias)
+    if (novo.has(cod)) novo.delete(cod)
+    else novo.add(cod)
+    setDias(novo)
+    onChange(serializeCron(novo, horarios))
+  }
+
+  function selecionarTodosDiasUteis() {
+    const novo = new Set<string>(['seg', 'ter', 'qua', 'qui', 'sex'])
+    setDias(novo)
+    onChange(serializeCron(novo, horarios))
+  }
+
+  function limparDias() {
+    const novo = new Set<string>()
+    setDias(novo)
+    onChange(serializeCron(novo, horarios))
+  }
+
+  function updateHorario(idx: number, val: string) {
+    const novo = [...horarios]
+    novo[idx] = val
+    setHorarios(novo)
+    onChange(serializeCron(dias, novo))
+  }
+
+  function addHorario() {
+    const novo = [...horarios, '']
+    setHorarios(novo)
+  }
+
+  function removeHorario(idx: number) {
+    const novo = horarios.filter((_, i) => i !== idx)
+    if (novo.length === 0) novo.push('')
+    setHorarios(novo)
+    onChange(serializeCron(dias, novo))
+  }
+
+  const temAgendamento = dias.size > 0 && horarios.some(h => /^\d{1,2}:\d{2}$/.test(h))
+
+  return (
+    <div style={{ background: 'var(--bg)', border: '0.5px solid var(--border)', borderRadius: 8, padding: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+        <span style={{ fontSize: 14 }}>🕐</span>
+        <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)' }}>Agendamento automático</span>
+        {temAgendamento && <span style={{ fontSize: 10, background: '#1D9E75', color: '#fff', padding: '1px 6px', borderRadius: 4, marginLeft: 'auto' }}>ATIVO</span>}
+        {!temAgendamento && dias.size === 0 && horarios.every(h => !h) && <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 'auto' }}>Desativado</span>}
+      </div>
+
+      {/* Dias da semana */}
+      <div style={{ marginBottom: 10 }}>
+        <label style={{ fontSize: 11, color: 'var(--text-3)', display: 'block', marginBottom: 6 }}>Dias da semana</label>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {DIAS_SEMANA.map(d => {
+            const ativo = dias.has(d.cod)
+            return (
+              <button
+                key={d.cod}
+                type="button"
+                onClick={() => toggleDia(d.cod)}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: 6,
+                  border: ativo ? '1.5px solid #1D9E75' : '0.5px solid var(--border)',
+                  background: ativo ? '#1D9E7520' : 'var(--surface)',
+                  color: ativo ? '#1D9E75' : 'var(--text-3)',
+                  fontSize: 12,
+                  fontWeight: ativo ? 600 : 400,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {d.label}
+              </button>
+            )
+          })}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+          <button type="button" onClick={selecionarTodosDiasUteis} style={{ fontSize: 10, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+            Dias úteis (seg-sex)
+          </button>
+          <button type="button" onClick={limparDias} style={{ fontSize: 10, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+            Limpar
+          </button>
+        </div>
+      </div>
+
+      {/* Horários */}
+      <div>
+        <label style={{ fontSize: 11, color: 'var(--text-3)', display: 'block', marginBottom: 6 }}>Horário(s)</label>
+        {horarios.map((h, idx) => (
+          <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+            <input
+              type="time"
+              value={h}
+              onChange={e => updateHorario(idx, e.target.value)}
+              style={{
+                padding: '6px 10px', borderRadius: 7,
+                border: '0.5px solid var(--border-strong)', background: 'var(--bg)',
+                color: 'var(--text)', fontSize: 13, fontFamily: 'monospace',
+                width: 120,
+              }}
+            />
+            {horarios.length > 1 && (
+              <button type="button" onClick={() => removeHorario(idx)} style={{ background: 'none', border: 'none', color: '#E24B4A', cursor: 'pointer', fontSize: 14, padding: '2px 6px' }}>✕</button>
+            )}
+          </div>
+        ))}
+        <button type="button" onClick={addHorario} style={{ fontSize: 11, color: 'var(--text-3)', background: 'none', border: '0.5px dashed var(--border)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', marginTop: 2 }}>
+          + Adicionar horário
+        </button>
+      </div>
+
+      {/* Preview */}
+      {temAgendamento && (
+        <div style={{ marginTop: 10, padding: '6px 10px', background: '#1D9E7510', borderRadius: 6, fontSize: 11, color: '#1D9E75' }}>
+          ✓ Roda {DIAS_SEMANA.filter(d => dias.has(d.cod)).map(d => d.label).join(', ')} às {horarios.filter(h => /^\d{1,2}:\d{2}$/.test(h)).join(' e ')}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function CampoSenha({ valor, onChange }: { valor: string; onChange: (v: string) => void }) {
@@ -54,6 +230,8 @@ function CardSeguradora({ id, seg, onSalvar, salvando }: {
   const [salvouOk, setSalvouOk]   = useState(false)
 
   const isSalvando = salvando === id
+  const temCron = 'cron' in campos
+  const cronAtivo = temCron && !!campos.cron
 
   async function testar() {
     setTestando(true); setStatusUrl(null)
@@ -92,6 +270,7 @@ function CardSeguradora({ id, seg, onSalvar, salvando }: {
           <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 1, fontFamily: 'monospace' }}>{seg.url}</div>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {cronAtivo && <span style={{ fontSize: 10, background: '#1D9E7520', color: '#1D9E75', padding: '2px 6px', borderRadius: 4, fontWeight: 500 }}>🕐 Agendado</span>}
           {salvouOk && <span style={{ fontSize: 11, color: '#1D9E75' }}>✓ salvo</span>}
           {statusUrl === 'ok'  && <span style={{ fontSize: 11, color: '#1D9E75' }}>● online</span>}
           {statusUrl === 'erro' && <span style={{ fontSize: 11, color: '#E24B4A' }}>● offline</span>}
@@ -108,8 +287,8 @@ function CardSeguradora({ id, seg, onSalvar, salvando }: {
             <input value={url} onChange={e => setUrl(e.target.value)} style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '0.5px solid var(--border-strong)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12, fontFamily: 'monospace' }} />
           </div>
 
-          {/* Campos de credenciais */}
-          {Object.entries(campos).map(([campo, valor]) => (
+          {/* Campos de credenciais (exceto cron — renderizado separado) */}
+          {Object.entries(campos).filter(([campo]) => campo !== 'cron').map(([campo, valor]) => (
             <div key={campo} style={{ marginBottom: 10 }}>
               <label style={{ fontSize: 11, color: 'var(--text-3)', display: 'block', marginBottom: 4, textTransform: 'capitalize' }}>
                 {campo.replace(/_/g, ' ')}
@@ -121,6 +300,16 @@ function CardSeguradora({ id, seg, onSalvar, salvando }: {
               }
             </div>
           ))}
+
+          {/* Campo Cron — UI especial */}
+          {temCron && (
+            <div style={{ marginBottom: 10 }}>
+              <CampoCron
+                valor={campos.cron || ''}
+                onChange={v => setCampos(p => ({ ...p, cron: v }))}
+              />
+            </div>
+          )}
 
           {/* Ações */}
           <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
@@ -233,7 +422,7 @@ export default function ConfiguracoesPage() {
         )}
 
         <div style={{ marginTop: 16, padding: '10px 14px', background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-3)' }}>
-          💡 Clique em qualquer card para editar. Use "Testar URL" para verificar se o portal está acessível antes de rodar a automação.
+          💡 Clique em qualquer card para editar. Use "Testar URL" para verificar se o portal está acessível. O campo "Agendamento automático" permite agendar execuções em dias e horários específicos.
         </div>
       </div>
     </div>

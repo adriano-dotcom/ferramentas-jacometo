@@ -128,27 +128,28 @@ const PADRAO = {
       cpf:        '02057398900',
       senha:      '@Giacomet123',
       portal_url: 'https://novomeuespacocorretor.yelumseguros.com.br/lp/payment-management',
+      cron:       '',
     },
   },
   giacomet_mitsui: {
     label:  'Giacomet — Mitsui',
     url:    'https://www4.msig.com.br/kitonline/',
-    campos: { usuario:'2144336b', senha:'@Jaco9001' },
+    campos: { usuario:'2144336b', senha:'@Jaco9001', cron:'' },
   },
   giacomet_allianz: {
     label:  'Giacomet — Allianz',
     url:    'https://www.allianznet.com.br/ngx-epac/public/home',
-    campos: { usuario:'BA253874', senha:'@Giacomet123@4' },
+    campos: { usuario:'BA253874', senha:'@Giacomet123@4', cron:'' },
   },
   giacomet_unimed: {
     label:  'Giacomet — Unimed',
     url:    'https://portal.segurosunimed.com.br',
-    campos: { cpf:'02057398900', senha:'@Giacomet123' },
+    campos: { cpf:'02057398900', senha:'@Giacomet123', cron:'' },
   },
   giacomet_akad: {
     label:  'Giacomet — AKAD',
     url:    'https://digital.akadseguros.com.br',
-    campos: { cpf:'020.573.989-00', senha:'Giaco9000@j2j@' },
+    campos: { cpf:'020.573.989-00', senha:'Giaco9000@j2j@', cron:'' },
   },
   giacomet_aig: {
     label:  'Giacomet — AIG',
@@ -163,37 +164,37 @@ const PADRAO = {
   giacomet_metlife: {
     label:  'Giacomet — MetLife Vida e Prev',
     url:    'https://login.metlife.com.br/login/dynamic/Login.action',
-    campos: { usuario:'000232144336', senha:'@Giacomet2023b' },
+    campos: { usuario:'000232144336', senha:'@Giacomet2023b', cron:'' },
   },
   giacomet_tokio: {
     label:  'Giacomet — Tokio Marine',
     url:    'https://ssoportais3.tokiomarine.com.br/openam/XUI/?realm=TOKIOLFR',
-    campos: { cpf:'', senha:'' },
+    campos: { cpf:'', senha:'', cron:'' },
   },
   giacomet_axa: {
     label:  'Giacomet — AXA',
     url:    'https://e-solutions.axa.com.br',
-    campos: { email:'', senha:'' },
+    campos: { email:'', senha:'', cron:'' },
   },
   giacomet_chubb: {
     label:  'Giacomet — Chubb',
     url:    'https://sso.chubbnet.com',
-    campos: { email:'', senha:'' },
+    campos: { email:'', senha:'', cron:'' },
   },
   giacomet_sompo: {
     label:  'Giacomet — Sompo',
     url:    'https://corretor.sompo.com.br/PortalCorretor_Th/Login.aspx',
-    campos: { usuario:'', senha:'' },
+    campos: { usuario:'', senha:'', cron:'' },
   },
   giacomet_essor: {
     label:  'Giacomet — Essor',
     url:    'https://portal.essor.com.br',
-    campos: { cnpj:'', senha:'' },
+    campos: { cnpj:'', senha:'', cron:'' },
   },
   giacomet_porto_seguro: {
     label:  'Giacomet — Porto Seguro',
     url:    'https://corretor.portoseguro.com.br/corretoronline/',
-    campos: { usuario:'', senha:'', susep:'' },
+    campos: { usuario:'', senha:'', susep:'', cron:'' },
   },
 
   // ══════════════════════════════════════════════════════════════════════
