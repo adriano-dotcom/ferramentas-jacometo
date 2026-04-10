@@ -165,6 +165,36 @@ const PADRAO = {
     url:    'https://login.metlife.com.br/login/dynamic/Login.action',
     campos: { usuario:'000232144336', senha:'@Giacomet2023b' },
   },
+  giacomet_tokio: {
+    label:  'Giacomet — Tokio Marine',
+    url:    'https://ssoportais3.tokiomarine.com.br/openam/XUI/?realm=TOKIOLFR',
+    campos: { cpf:'', senha:'' },
+  },
+  giacomet_axa: {
+    label:  'Giacomet — AXA',
+    url:    'https://e-solutions.axa.com.br',
+    campos: { email:'', senha:'' },
+  },
+  giacomet_chubb: {
+    label:  'Giacomet — Chubb',
+    url:    'https://sso.chubbnet.com',
+    campos: { email:'', senha:'' },
+  },
+  giacomet_sompo: {
+    label:  'Giacomet — Sompo',
+    url:    'https://corretor.sompo.com.br/PortalCorretor_Th/Login.aspx',
+    campos: { usuario:'', senha:'' },
+  },
+  giacomet_essor: {
+    label:  'Giacomet — Essor',
+    url:    'https://portal.essor.com.br',
+    campos: { cnpj:'', senha:'' },
+  },
+  giacomet_porto_seguro: {
+    label:  'Giacomet — Porto Seguro',
+    url:    'https://corretor.portoseguro.com.br/corretoronline/',
+    campos: { usuario:'', senha:'', susep:'' },
+  },
 
   // ══════════════════════════════════════════════════════════════════════
   // PIPEDRIVE — integracao webhook → monitor de averbacao

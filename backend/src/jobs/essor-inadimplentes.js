@@ -50,15 +50,19 @@ function classErr(msg) {
 }
 
 module.exports = async function routeEssorInadimplentes(req, res) {
+  const corretora = req.body?.corretora || 'jacometo'
+  const credKey = corretora === 'giacomet' ? 'giacomet_essor' : 'essor'
+  const nomeCorretora = corretora === 'giacomet' ? 'GIACOMET' : 'JACOMETO'
+
   const jobId = criarJob()
-  log.info(`Job Essor inadimplentes — ${jobId}`)
-  res.json({ ok:true, jobId, mensagem:'Iniciando extração de inadimplentes da Essor.' })
+  log.info(`Job Essor inadimplentes [${nomeCorretora}] — ${jobId}`)
+  res.json({ ok:true, jobId, mensagem:`Iniciando extração de inadimplentes da Essor (${nomeCorretora}).` })
 
   setImmediate(async () => {
     const _inicio = new Date()
-    await db.jobIniciado(jobId, 'essor')
+    await db.jobIniciado(jobId, credKey)
     // Recarrega credenciais a cada execução (para pegar atualizações do painel)
-    const _creds = getCred('essor')
+    const _creds = getCred(credKey)
     PORTAL_URL = _creds.url || PORTAL_URL
     LOGIN_CNPJ = _creds.cnpj || LOGIN_CNPJ
     LOGIN_SENHA = _creds.senha || LOGIN_SENHA

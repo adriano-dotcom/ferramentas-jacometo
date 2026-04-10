@@ -183,16 +183,20 @@ async function extrairParcelas(page) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 module.exports = async function routePortoSeguroInadimplentes(req, res) {
+  const corretora = req.body?.corretora || 'jacometo'
+  const credKey = corretora === 'giacomet' ? 'giacomet_porto_seguro' : 'porto_seguro'
+  const nomeCorretora = corretora === 'giacomet' ? 'GIACOMET' : 'JACOMETO'
+
   const jobId = criarJob()
-  log.info(`Job Porto Seguro inadimplentes — ${jobId}`)
-  res.json({ ok: true, jobId, mensagem: 'Iniciando extração de inadimplentes da Porto Seguro.' })
+  log.info(`Job Porto Seguro inadimplentes [${nomeCorretora}] — ${jobId}`)
+  res.json({ ok: true, jobId, mensagem: `Iniciando extração de inadimplentes da Porto Seguro (${nomeCorretora}).` })
 
   setImmediate(async () => {
     const _inicio = new Date()
-    await db.jobIniciado(jobId, 'porto_seguro')
+    await db.jobIniciado(jobId, credKey)
 
     // Recarrega credenciais (pega atualizações do painel)
-    const _creds = getCred('porto_seguro')
+    const _creds = getCred(credKey)
     PORTAL_URL  = _creds.url     || PORTAL_URL
     LOGIN_USER  = _creds.usuario || LOGIN_USER
     LOGIN_SENHA = _creds.senha   || LOGIN_SENHA

@@ -117,6 +117,12 @@ app.post('/api/giacomet-yelum-inadimplentes/executar',    giacomet(routeYelum));
 app.post('/api/giacomet-mitsui-inadimplentes/executar',   giacomet(routeMitsui));     app.get('/api/giacomet-mitsui-inadimplentes/status/:jobId',   statusMitsui)
 app.post('/api/giacomet-unimed-inadimplentes/executar',   giacomet(routeUnimedSeg));  app.get('/api/giacomet-unimed-inadimplentes/status/:jobId',   statusUnimedSeg)
 app.post('/api/giacomet-metlife-inadimplentes/executar',  giacomet(routeMetlife));    app.get('/api/giacomet-metlife-inadimplentes/status/:jobId',  statusMetlife)
+app.post('/api/giacomet-tokio-inadimplentes/executar',   giacomet(routeTokio));     app.get('/api/giacomet-tokio-inadimplentes/status/:jobId',   statusTokio)
+app.post('/api/giacomet-axa-inadimplentes/executar',     giacomet(routeAxa));       app.get('/api/giacomet-axa-inadimplentes/status/:jobId',     statusAxa)
+app.post('/api/giacomet-chubb-inadimplentes/executar',   giacomet(routeChubb));     app.get('/api/giacomet-chubb-inadimplentes/status/:jobId',   statusChubb)
+app.post('/api/giacomet-sompo-inadimplentes/executar',   giacomet(routeSompo));     app.get('/api/giacomet-sompo-inadimplentes/status/:jobId',   statusSompo)
+app.post('/api/giacomet-essor-inadimplentes/executar',   giacomet(routeEssor));     app.get('/api/giacomet-essor-inadimplentes/status/:jobId',   statusEssor)
+app.post('/api/giacomet-porto-seguro-inadimplentes/executar', giacomet(routePortoSeguro)); app.get('/api/giacomet-porto-seguro-inadimplentes/status/:jobId', statusPortoSeguro)
 
 // Monitor de Averbacao (pode não existir ainda)
 try { app.use('/api/monitor-averbacao', require('./routes/monitor-averbacao')) } catch { /* módulo não existe ainda */ }

@@ -344,15 +344,19 @@ async function enviarEmail(parcelas, csvPath, jobId) {
 // ── Handler principal ─────────────────────────────────────────────────────────
 
 module.exports = async function routeTokioInadimplentes(req, res) {
+  const corretora = req.body?.corretora || 'jacometo'
+  const credKey = corretora === 'giacomet' ? 'giacomet_tokio' : 'tokio'
+  const nomeCorretora = corretora === 'giacomet' ? 'GIACOMET' : 'JACOMETO'
+
   const jobId = criarJob()
-  log.info(`Job Tokio Marine inadimplentes — ${jobId}`)
-  res.json({ ok: true, jobId, mensagem: 'Iniciando extração de inadimplentes da Tokio Marine.' })
+  log.info(`Job Tokio Marine inadimplentes [${nomeCorretora}] — ${jobId}`)
+  res.json({ ok: true, jobId, mensagem: `Iniciando extração de inadimplentes da Tokio Marine (${nomeCorretora}).` })
 
   setImmediate(async () => {
     const _inicio = new Date()
-    await db.jobIniciado(jobId, 'tokio')
+    await db.jobIniciado(jobId, credKey)
     // Recarrega credenciais a cada execução (para pegar atualizações do painel)
-    const _creds = getCred('tokio')
+    const _creds = getCred(credKey)
     LOGIN_URL = _creds.url || LOGIN_URL
     LOGIN_CPF = _creds.cpf || LOGIN_CPF
     LOGIN_SENHA = _creds.senha || LOGIN_SENHA

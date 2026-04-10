@@ -316,16 +316,20 @@ async function enviarEmail(parcelas, csvPath, jobId) {
 // ── Handler principal ─────────────────────────────────────────────────────────
 
 module.exports = async function routeChubbInadimplentes(req, res) {
-  const jobId = criarJob()
-  log.info(`Job Chubb inadimplentes — ${jobId}`)
+  const corretora = req.body?.corretora || 'jacometo'
+  const credKey = corretora === 'giacomet' ? 'giacomet_chubb' : 'chubb'
+  const nomeCorretora = corretora === 'giacomet' ? 'GIACOMET' : 'JACOMETO'
 
-  res.json({ ok: true, jobId, mensagem: 'Iniciando extração de inadimplentes da Chubb.' })
+  const jobId = criarJob()
+  log.info(`Job Chubb inadimplentes [${nomeCorretora}] — ${jobId}`)
+
+  res.json({ ok: true, jobId, mensagem: `Iniciando extração de inadimplentes da Chubb (${nomeCorretora}).` })
 
   setImmediate(async () => {
     const _inicio = new Date()
-    await db.jobIniciado(jobId, 'chubb')
+    await db.jobIniciado(jobId, credKey)
     // Recarrega credenciais a cada execução (para pegar atualizações do painel)
-    const _creds = getCred('chubb')
+    const _creds = getCred(credKey)
     PORTAL_URL = _creds.url || PORTAL_URL
     LOGIN_EMAIL = _creds.email || LOGIN_EMAIL
     LOGIN_SENHA = _creds.senha || LOGIN_SENHA
