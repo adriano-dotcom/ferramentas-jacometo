@@ -109,6 +109,15 @@ app.post('/api/metlife-inadimplentes/executar',             routeMetlife);    ap
 app.post('/api/unimed-seguros-inadimplentes/executar',      routeUnimedSeg);  app.get('/api/unimed-seguros-inadimplentes/status/:jobId', statusUnimedSeg)
 app.post('/api/porto-seguro-inadimplentes/executar',       routePortoSeguro); app.get('/api/porto-seguro-inadimplentes/status/:jobId',  statusPortoSeguro)
 
+// ── Giacomet — mesmos handlers, corretora='giacomet' injetada no body ────────
+function giacomet(handler) { return (req, res) => { req.body = { ...req.body, corretora: 'giacomet' }; handler(req, res) } }
+app.post('/api/giacomet-allianz-inadimplentes/executar',  giacomet(routeAllianz));    app.get('/api/giacomet-allianz-inadimplentes/status/:jobId',  statusAllianz)
+app.post('/api/giacomet-akad-inadimplentes/executar',     giacomet(routeAkad));       app.get('/api/giacomet-akad-inadimplentes/status/:jobId',     statusAkad)
+app.post('/api/giacomet-yelum-inadimplentes/executar',    giacomet(routeYelum));      app.get('/api/giacomet-yelum-inadimplentes/status/:jobId',    statusYelum)
+app.post('/api/giacomet-mitsui-inadimplentes/executar',   giacomet(routeMitsui));     app.get('/api/giacomet-mitsui-inadimplentes/status/:jobId',   statusMitsui)
+app.post('/api/giacomet-unimed-inadimplentes/executar',   giacomet(routeUnimedSeg));  app.get('/api/giacomet-unimed-inadimplentes/status/:jobId',   statusUnimedSeg)
+app.post('/api/giacomet-metlife-inadimplentes/executar',  giacomet(routeMetlife));    app.get('/api/giacomet-metlife-inadimplentes/status/:jobId',  statusMetlife)
+
 // Monitor de Averbacao (pode não existir ainda)
 try { app.use('/api/monitor-averbacao', require('./routes/monitor-averbacao')) } catch { /* módulo não existe ainda */ }
 
