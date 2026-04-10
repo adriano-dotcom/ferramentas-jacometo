@@ -13,7 +13,7 @@
 import { google } from 'googleapis';
 import fs from 'fs';
 import dotenv from 'dotenv';
-dotenv.config();
+dotenv.config({ override: true });
 
 import { supabase } from '../lib/supabase.js';
 
@@ -127,7 +127,8 @@ async function processarPDF(drive, arquivo) {
   const { id, name } = arquivo;
   console.log(`\n📄 Processando: ${name}`);
 
-  const seguradora = detectarSeguradora(name);
+  let seguradora = detectarSeguradora(name);
+  let ramo = null;
 
   // Cria registro no log imediatamente
   const logId = await logFatura({
@@ -137,40 +138,65 @@ async function processarPDF(drive, arquivo) {
     arquivo_drive_id: id,
   });
 
+  // Se não detectou pelo nome, baixa PDF e identifica via Claude Vision
+  let pdfBuffer;
   if (!seguradora) {
-    console.log(`  ⚠️ Seguradora não detectada no nome: ${name}`);
-    await atualizarLog(logId, { status: 'erro', erro_tipo: 'desconhecido', erro_mensagem: 'Seguradora não detectada no nome do arquivo' });
-    await moverParaSubpasta(drive, id, 'Erros');
-    await marcarProcessado(drive, id);
-    stats.totalErros++;
+    console.log(`  🔍 Seguradora não detectada no nome — identificando pelo conteúdo...`);
+    try {
+      const res = await drive.files.get({ fileId: id, alt: 'media' }, { responseType: 'arraybuffer' });
+      pdfBuffer = Buffer.from(res.data);
+      console.log(`  ⬇️ Baixado: ${Math.round(pdfBuffer.length / 1024)} KB`);
 
-    const { enviarConfirmacao } = await import('../lib/email-confirmacao.js');
-    await enviarConfirmacao({
-      segurado: name, seguradora: '?', apolice: '—', endosso: '—',
-      premio: '—', vencimento: '—', ramo: '—', sucesso: false,
-      erro: `Seguradora não detectada no nome do arquivo. Renomeie com: allianz, tokio, akad, sompo, axa ou chubb.`,
-    });
-    return;
+      const { identificarSeguradora } = await import('../tools/extrator-fatura.js');
+      const ident = await identificarSeguradora(pdfBuffer);
+
+      if (ident.ok) {
+        seguradora = ident.seguradora;
+        ramo = ident.ramo;
+        console.log(`  ✅ Identificado: ${seguradora}${ramo ? ` (${ramo})` : ''}`);
+        await atualizarLog(logId, { seguradora });
+      } else {
+        console.log(`  ❌ Não identificou: ${ident.erro}`);
+        await atualizarLog(logId, { status: 'erro', erro_tipo: 'desconhecido', erro_mensagem: `Seguradora não identificada: ${ident.erro}` });
+        await moverParaSubpasta(drive, id, 'Erros');
+        await marcarProcessado(drive, id);
+        stats.totalErros++;
+
+        const { enviarConfirmacao } = await import('../lib/email-confirmacao.js');
+        await enviarConfirmacao({
+          segurado: name, seguradora: '?', apolice: '—', endosso: '—',
+          premio: '—', vencimento: '—', ramo: '—', sucesso: false,
+          erro: `Seguradora não identificada automaticamente: ${ident.erro}`,
+        });
+        return;
+      }
+    } catch (err) {
+      console.error(`  ❌ Erro ao baixar/identificar: ${err.message}`);
+      await atualizarLog(logId, { status: 'erro', erro_tipo: 'drive', erro_mensagem: err.message });
+      stats.totalErros++;
+      return;
+    }
   }
 
-  // 1. Baixa PDF
-  let pdfBuffer;
-  try {
-    const res = await drive.files.get({ fileId: id, alt: 'media' }, { responseType: 'arraybuffer' });
-    pdfBuffer = Buffer.from(res.data);
-    console.log(`  ⬇️ Baixado: ${Math.round(pdfBuffer.length / 1024)} KB`);
-  } catch (err) {
-    console.error(`  ❌ Erro ao baixar: ${err.message}`);
-    await atualizarLog(logId, { status: 'erro', erro_tipo: 'drive', erro_mensagem: `Erro ao baixar: ${err.message}`, erro_raw: err.stack });
-    stats.totalErros++;
-    return;
+  // 1. Baixa PDF (reutiliza se já baixou para identificação)
+  if (!pdfBuffer) {
+    try {
+      const res = await drive.files.get({ fileId: id, alt: 'media' }, { responseType: 'arraybuffer' });
+      pdfBuffer = Buffer.from(res.data);
+      console.log(`  ⬇️ Baixado: ${Math.round(pdfBuffer.length / 1024)} KB`);
+    } catch (err) {
+      console.error(`  ❌ Erro ao baixar: ${err.message}`);
+      await atualizarLog(logId, { status: 'erro', erro_tipo: 'drive', erro_mensagem: `Erro ao baixar: ${err.message}`, erro_raw: err.stack });
+      stats.totalErros++;
+      return;
+    }
   }
 
   // 2. Extrai dados com Claude Vision
   let dadosExtraidos;
   try {
     const { extrairDadosFatura } = await import('../tools/extrator-fatura.js');
-    const ext = await extrairDadosFatura(pdfBuffer, seguradora);
+    const ext = await extrairDadosFatura(pdfBuffer, seguradora, ramo);
     if (!ext.ok) {
       console.log(`  ❌ Extração falhou: ${ext.erro}`);
       await atualizarLog(logId, { status: 'erro', erro_tipo: 'extracao', erro_mensagem: ext.erro, dados_extraidos: ext.dados || null });
@@ -201,7 +227,7 @@ async function processarPDF(drive, arquivo) {
   let resultado;
   try {
     const { cadastrarFaturas } = await import('../tools/quiver-tool.js');
-    resultado = await cadastrarFaturas([{ buffer: pdfBuffer, nome: name }]);
+    resultado = await cadastrarFaturas([{ buffer: pdfBuffer, nome: name, dados_extraidos: dadosExtraidos }]);
     console.log(`  📋 Quiver: ${resultado.mensagem}`);
   } catch (err) {
     console.error(`  ❌ Erro no cadastro: ${err.message}`);
@@ -294,26 +320,44 @@ async function moverParaSubpasta(drive, fileId, subfolderName) {
 
 // ── VERIFICAÇÃO PRINCIPAL ─────────────────────────────────────────────────────
 
+let verificando = false; // Lock para evitar processamento duplo
+
 async function verificar() {
+  if (verificando) return; // Já está processando
+  verificando = true;
   try {
     const drive = getDrive();
 
-    // Busca PDFs na pasta que NÃO têm appProperties.jacometo_processado
+    // Busca todos os PDFs na pasta — filtra processados localmente
     const res = await drive.files.list({
-      q: [
-        `'${FOLDER_ID}' in parents`,
-        `mimeType = 'application/pdf'`,
-        `trashed = false`,
-        `appProperties has { key='jacometo_processado' and value='true' } = false`,
-      ].join(' and ').replace(` = false`, ''),
+      q: `'${FOLDER_ID}' in parents and mimeType = 'application/pdf' and trashed = false`,
       fields: 'files(id, name, createdTime, appProperties)',
       orderBy: 'createdTime asc',
       pageSize: 20,
     });
 
-    // Filtra manualmente os não processados (Drive API não suporta "NOT has" em appProperties)
+    // Filtra não processados (appProperties) + dedup por nome no Supabase
     const todosPdfs = res.data.files || [];
-    const novos = todosPdfs.filter(f => !f.appProperties?.jacometo_processado);
+    let novos = todosPdfs.filter(f => !f.appProperties?.jacometo_processado);
+
+    // Remove arquivos que já foram cadastrados com sucesso no Supabase
+    if (novos.length > 0) {
+      const nomes = novos.map(f => f.name);
+      const { data: jaCadastrados } = await supabase
+        .from('faturas_log')
+        .select('arquivo')
+        .in('arquivo', nomes)
+        .eq('status', 'sucesso');
+      if (jaCadastrados?.length > 0) {
+        const jaSet = new Set(jaCadastrados.map(r => r.arquivo));
+        for (const f of novos.filter(n => jaSet.has(n.name))) {
+          console.log(`  ⏭️ ${f.name} — já cadastrada, marcando como processada`);
+          await marcarProcessado(drive, f.id);
+          await moverParaSubpasta(drive, f.id, 'Processados');
+        }
+        novos = novos.filter(f => !jaSet.has(f.name));
+      }
+    }
 
     stats.ultimaVerificacao = new Date().toISOString();
 
@@ -327,6 +371,8 @@ async function verificar() {
 
   } catch (err) {
     console.error(`❌ Drive Watcher erro: ${err.message}`);
+  } finally {
+    verificando = false;
   }
 }
 

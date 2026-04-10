@@ -31,8 +31,10 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 /**
  * Cadastra faturas de transporte enviando PDFs para o backend RPA.
  * O backend faz extração + cadastro no Quiver PRO automaticamente.
+ * Se dados_extraidos for fornecido, envia junto para o backend usar
+ * em vez de fazer sua própria extração.
  *
- * @param {Array<{buffer: Buffer, nome: string}>} pdfs — array de PDFs
+ * @param {Array<{buffer: Buffer, nome: string, dados_extraidos?: object}>} pdfs — array de PDFs
  * @returns {Promise<{sucesso: boolean, mensagem: string, jobId?: string, resultado?: object}>}
  */
 export async function cadastrarFaturas(pdfs) {
@@ -42,13 +44,19 @@ export async function cadastrarFaturas(pdfs) {
 
   console.log(`  📋 Quiver: enviando ${pdfs.length} PDF(s) para cadastro`);
 
-  // 1. Monta multipart com os PDFs
+  // 1. Monta multipart com os PDFs + dados extraídos
   const form = new FormData();
   for (const pdf of pdfs) {
     form.append('arquivos', pdf.buffer, {
       filename: pdf.nome || 'fatura.pdf',
       contentType: 'application/pdf',
     });
+  }
+
+  // Envia dados extraídos para o backend usar (evita re-extração e garante dados corretos)
+  const dadosList = pdfs.filter(p => p.dados_extraidos).map(p => p.dados_extraidos);
+  if (dadosList.length > 0) {
+    form.append('dados_extraidos', JSON.stringify(dadosList));
   }
 
   // 2. Envia para o backend

@@ -236,6 +236,18 @@ async function cadastrarFatura(page, fatura, idx) {
     // Tokio Marine: últimos 6 dígitos
     apoliceQuiver = apoliceQuiver.slice(-6)
     log.info(`  Tokio: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver}`)
+  } else if (segLower.includes('axa')) {
+    // AXA: formato 02852.2026.0043.RAMO.NNNNNNN
+    // Ramo 0654 (RCTR-C) → últimos 5 dígitos sem zeros
+    // Ramo 0655 (RC-DC)  → últimos 4 dígitos sem zeros
+    const ramoStr = (fatura.ramo || '').toUpperCase()
+    if (ramoStr.includes('DC') || ramoStr.includes('0655') || ramoStr === '55') {
+      apoliceQuiver = apoliceQuiver.replace(/\./g, '').slice(-4).replace(/^0+/, '')
+      log.info(`  AXA RC-DC: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver}`)
+    } else {
+      apoliceQuiver = apoliceQuiver.replace(/\./g, '').slice(-5).replace(/^0+/, '')
+      log.info(`  AXA RCTR-C: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver}`)
+    }
   }
 
   log.info(`[${idx + 1}] ${fatura.segurado} — ${apoliceQuiver} end ${fatura.endosso}`)
@@ -319,9 +331,42 @@ module.exports = async function routeQuiverFaturasTransporte(req, res) {
     const faturas = []
     atualizar(jobId, { status: 'extraindo' })
 
-    for (const arq of arquivos) {
+    // Verifica se recebeu dados pré-extraídos do Jarvis OS (drive-watcher)
+    let dadosPreExtraidos = null
+    try {
+      if (req.body?.dados_extraidos) {
+        dadosPreExtraidos = JSON.parse(req.body.dados_extraidos)
+        log.info(`Recebido dados pré-extraídos para ${dadosPreExtraidos.length} fatura(s)`)
+      }
+    } catch { /* ignora parse error */ }
+
+    for (let idx = 0; idx < arquivos.length; idx++) {
+      const arq = arquivos[idx]
       try {
-        const dados = await extrairDadosPDF(fs.readFileSync(arq.path).toString('base64'), arq.originalname)
+        let dados = null
+
+        // Se tem dados pré-extraídos do Jarvis OS, converte para formato do backend
+        if (dadosPreExtraidos?.[idx]) {
+          const pre = dadosPreExtraidos[idx]
+          dados = {
+            seguradora: (pre.seguradora || '').charAt(0).toUpperCase() + (pre.seguradora || '').slice(1),
+            apolice: String(pre.apolice || ''),
+            endosso: String(pre.endosso || ''),
+            ramo: pre.ramo || '',
+            segurado: '',
+            cnpj: '',
+            emissao: '',
+            proposta_cia: '',
+            inicio_vigencia: pre.periodo_inicio || '',
+            fim_vigencia: pre.periodo_fim || '',
+            premio_liquido: String(pre.premio || '').replace('.', ','),
+            vencimento: pre.vencimento || '',
+          }
+          log.ok(`Usando dados pré-extraídos: ${arq.originalname} — apólice ${dados.apolice}`)
+        } else {
+          dados = await extrairDadosPDF(fs.readFileSync(arq.path).toString('base64'), arq.originalname)
+        }
+
         if (dados) {
           faturas.push({ ...dados, arquivoOriginal: arq.originalname })
           log.ok(`Extraído: ${arq.originalname}`)

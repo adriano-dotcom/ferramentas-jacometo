@@ -14,7 +14,7 @@ dotenv.config();
 
 const CREDENTIALS_PATH = process.env.GOOGLE_CREDENTIALS_PATH || './credentials.json';
 const TOKEN_PATH = './token.json';
-const SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
+const SCOPES = ['https://www.googleapis.com/auth/drive'];
 
 async function authorize() {
   const content = fs.readFileSync(CREDENTIALS_PATH, 'utf8');
