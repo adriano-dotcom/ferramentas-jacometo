@@ -50,8 +50,12 @@ window.getDoc2 = () => {
   return zi2.contentDocument;
 };
 window.setField = (doc, id, val) => {
-  const el = doc.getElementById(id); if (!el) return false;
-  el.value = val; el.dispatchEvent(new Event('change', { bubbles: true })); return true;
+  const el = doc.getElementById(id);
+  if (!el) { console.warn('[Quiver] setField: elemento não encontrado:', id); return false; }
+  el.value = val;
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  console.log('[Quiver] setField:', id, '=', val, '→ actual:', el.value);
+  return true;
 };
 window.clickBtn = (doc, text) => {
   for (const btn of doc.querySelectorAll('button, input[type="button"], a')) {
@@ -63,7 +67,7 @@ window.lerErros = (doc) => {
   const sels = '.msg-erro,.alert-danger,.erro,span[style*="red"],[class*="error"],[class*="Error"],[id*="Error"]';
   return Array.from(doc.querySelectorAll(sels)).map(e => e.textContent.trim()).filter(Boolean).join(' | ');
 };
-window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimento, premioLiq) => {
+window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimento, premioLiq, seguradora) => {
   for (const a of document.querySelectorAll('a')) {
     if (a.textContent.trim() === 'Operacional') { a.click(); break; }
   }
@@ -91,7 +95,9 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
             const d2 = window.getDoc2();
             if (!d2) { window.__quiverErro = 'SUBTIPO_NAO_CARREGOU'; return; }
             window.setField(d2, 'Documento_SubTipo', '36');
-            window.setField(d2, 'Documento_Endosso', String(endosso).padStart(6,'0'));
+            // Allianz: endosso com 6 dígitos (padding zeros). Tokio Marine: SEM zeros.
+            const endFmt = (seguradora || '').toLowerCase().includes('tokio') ? String(endosso) : String(endosso).padStart(6,'0');
+            window.setField(d2, 'Documento_Endosso', endFmt);
             window.setField(d2, 'Documento_DataEmissao', emissao);
             window.setField(d2, 'Documento_InicioVigencia', inicio);
             window.setField(d2, 'Documento_TerminoVigencia', fim);
@@ -114,13 +120,9 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
                 const d2 = window.getDoc2(); if (!d2) return;
                 window.setField(d2, 'Documento_DataVencPrimeira', vencimento);
                 window.setField(d2, 'Documento_PremioLiqDesc', premioLiq);
-                d2.getElementById('BtGravar').click();
-                setTimeout(() => {
-                  const d2 = window.getDoc2(); if (!d2) return;
-                  window.clickBtn(d2, 'OK');
-                  const errs = window.lerErros(d2);
-                  if (errs && !window.__quiverErro) window.__quiverErro = 'GRAVAR2:' + errs;
-                }, 2000);
+                // NÃO clica Gravar aqui — Playwright vai fazer Tab real + Gravar
+                // Marca flag para Playwright saber que prêmio foi preenchido
+                window.__premioPreenchido = true;
               }, 2000);
             }, 6000);
           }, 3500);
@@ -152,6 +154,29 @@ function classificarErro(msg) {
   return { tipo: 'OUTRO', label: msg.substring(0, 100), orientacao: 'Cadastre manualmente ou tente reenviar.' }
 }
 
+// Normaliza prêmio para formato brasileiro "X.XXX,YY" (sempre com vírgula decimal)
+// Aceita:
+//   - número JS: 3295.56 → "3295,56"
+//   - string decimal JS: "3295.56" → "3295,56"
+//   - string pt-BR: "3.295,56" → "3295,56" (remove separador de milhar)
+//   - string com vírgula: "3295,56" → "3295,56"
+// Importante: NÃO quebrar valores grandes (bug anterior: "3.295,56".replace('.', ',') → "3,295,56")
+function normalizarPremio(v) {
+  if (v === null || v === undefined || v === '') return ''
+  // Se é número, converte direto substituindo ponto por vírgula
+  if (typeof v === 'number') return v.toFixed(2).replace('.', ',')
+  const s = String(v).trim()
+  if (!s) return ''
+  // Se contém vírgula → formato pt-BR: apenas remove pontos de milhar
+  if (s.includes(',')) return s.replace(/\./g, '')
+  // Só tem ponto → formato decimal JS: troca único ponto por vírgula
+  // Se tiver múltiplos pontos (ex: "3.295"), é separador de milhar sem centavos
+  const pontos = (s.match(/\./g) || []).length
+  if (pontos === 1) return s.replace('.', ',')
+  // Múltiplos pontos (ex: "3.295") → remove todos e assume que já é inteiro
+  return s.replace(/\./g, '')
+}
+
 // ── Extração de PDF via Claude API ────────────────────────────────────────────
 
 async function extrairDadosPDF(pdfBase64, nomeArquivo) {
@@ -171,14 +196,26 @@ async function extrairDadosPDF(pdfBase64, nomeArquivo) {
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } },
           { type: 'text', text: `Extraia dados desta fatura de seguro transporte. Retorne APENAS JSON sem markdown.
 
-REGRA IMPORTANTE PARA ALLIANZ:
-- O número do endosso/fatura da Allianz está SEMPRE no RODAPÉ DA PÁGINA 2 (última página).
+REGRAS POR SEGURADORA:
+
+TOKIO MARINE:
+- O endosso é o "Endosso / Fatura nº." — NÃO adicione zeros à esquerda. Se está "5", retorne "5" (não "05" nem "005").
+- Para inicio_vigencia e fim_vigencia, use o PERÍODO do "Resumo de Embarques - Subgrupo" (ex: "01/03/2026 à 31/03/2026"), NÃO a vigência da apólice.
+- A vigência da apólice (ex: 27/11/2025 até 27/11/2026) é da apólice inteira — IGNORE para as datas.
+- premio_liquido: use o "PRÊMIO LÍQUIDO FINAL" da composição do prêmio.
+- vencimento: do "Demonstrativo e Fracionamento do Prêmio".
+
+ALLIANZ:
+- O número do endosso/fatura está SEMPRE no RODAPÉ DA PÁGINA 2 (última página).
 - O rodapé mostra "Nº Apólice: XXXXXXXXXXXXXXXXXXX" e "Nº Fatura: N"
 - Use o "Nº Fatura" do rodapé da página 2 como endosso — NÃO use o da página 1 pois pode ser diferente.
 - A apólice completa também deve vir do rodapé da página 2.
 
+SOMPO / AKAD / AXA / CHUBB:
+- Siga os campos conforme aparecem no documento.
+
 Formato de resposta:
-{"seguradora":"Tokio Marine|Sompo|AKAD|AXA|Chubb|Allianz","apolice":"número completo","endosso":"(Allianz: Nº Fatura do RODAPÉ PÁG 2)","ramo":"54 ou 55","segurado":"","cnpj":"","emissao":"DD/MM/YYYY","proposta_cia":"","inicio_vigencia":"DD/MM/YYYY","fim_vigencia":"DD/MM/YYYY","premio_liquido":"ex:1.234,56","vencimento":"DD/MM/YYYY"}` },
+{"seguradora":"Tokio Marine|Sompo|AKAD|AXA|Chubb|Allianz","apolice":"número completo","endosso":"EXATAMENTE como na fatura, SEM zeros à esquerda (ex: 5, não 005)","ramo":"54 ou 55","segurado":"","cnpj":"","emissao":"DD/MM/YYYY","proposta_cia":"","inicio_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques)","fim_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques)","premio_liquido":"ex:1.234,56","vencimento":"DD/MM/YYYY"}` },
         ],
       }],
     }),
@@ -191,7 +228,12 @@ Formato de resposta:
   const data = await response.json()
   const texto = data.content?.find(b => b.type === 'text')?.text || ''
   log.info(`Claude extraiu: ${texto.substring(0, 150)}`)
-  try { return JSON.parse(texto.replace(/```json|```/g, '').trim()) } catch { log.error(`JSON parse falhou: ${texto.substring(0,100)}`); return null }
+  try {
+    const parsed = JSON.parse(texto.replace(/```json|```/g, '').trim())
+    // Normaliza prêmio: "3.295,56" → "3295,56" (evita Quiver interpretar ponto como decimal)
+    if (parsed && parsed.premio_liquido) parsed.premio_liquido = normalizarPremio(parsed.premio_liquido)
+    return parsed
+  } catch { log.error(`JSON parse falhou: ${texto.substring(0,100)}`); return null }
 }
 
 // ── Playwright ────────────────────────────────────────────────────────────────
@@ -250,7 +292,7 @@ async function cadastrarFatura(page, fatura, idx) {
     }
   }
 
-  log.info(`[${idx + 1}] ${fatura.segurado} — ${apoliceQuiver} end ${fatura.endosso}`)
+  log.info(`[${idx + 1}] ${fatura.segurado} — ${apoliceQuiver} end ${fatura.endosso} | prêmio: "${fatura.premio_liquido}" | vig: ${fatura.inicio_vigencia}→${fatura.fim_vigencia} | venc: ${fatura.vencimento}`)
   await page.evaluate(() => { window.__quiverErro = null })
 
   try {
@@ -260,10 +302,75 @@ async function cadastrarFatura(page, fatura, idx) {
     await page.evaluate(`window.startFatura(
       '${apoliceQuiver}','${fatura.endosso}','${fatura.emissao}',
       '${fatura.inicio_vigencia}','${fatura.fim_vigencia}',
-      '${fatura.proposta_cia || ''}','${fatura.vencimento}','${fatura.premio_liquido}'
+      '${fatura.proposta_cia || ''}','${fatura.vencimento}','${fatura.premio_liquido}',
+      '${fatura.seguradora || ''}'
     )`)
 
-    await page.waitForTimeout(24000)
+    // Espera o JS preencher campos (Dados Básicos + abrir aba Prêmios + preencher prêmio)
+    // Chain de setTimeouts: 2+2+3+3+3.5+6+2 = ~21.5s para preencher prêmio
+    // Polling a cada 2s até flag ficar true (máximo 30s)
+    log.info('Aguardando JS preencher prêmio...')
+    let premioOk = false
+    for (let i = 0; i < 15; i++) {
+      await page.waitForTimeout(2000)
+      premioOk = await page.evaluate(() => window.__premioPreenchido === true)
+      if (premioOk) break
+      // Verifica se deu erro antes
+      const erroAntes = await page.evaluate(() => window.__quiverErro || null)
+      if (erroAntes) break
+    }
+
+    if (premioOk) {
+      log.info('Prêmio preenchido pelo JS. Fazendo Tab real via Playwright...')
+
+      // Acessa o iframe interno (ZonaInterna > ZonaInterna) onde está o campo
+      const frame1 = page.frame({ name: 'ZonaInterna' }) || page.frames().find(f => f.url().includes('ZonaInterna') || f.name() === 'ZonaInterna')
+      let frameAlvo = frame1
+
+      if (frame1) {
+        // Tenta achar o sub-frame
+        const frame2 = frame1.childFrames().find(f => f.name() === 'ZonaInterna' || f.url().includes('endosso') || f.url().includes('Documento'))
+        if (frame2) frameAlvo = frame2
+      }
+
+      if (frameAlvo) {
+        try {
+          // Clica no campo prêmio líquido e pressiona Tab (evento REAL do browser)
+          const campoPremio = frameAlvo.locator('#Documento_PremioLiqDesc')
+          if (await campoPremio.count() > 0) {
+            await campoPremio.click()
+            await page.waitForTimeout(300)
+            await campoPremio.press('Tab')
+            log.info('Tab real enviado no campo prêmio via Playwright.')
+            await page.waitForTimeout(3000) // aguarda Quiver recalcular
+          } else {
+            log.warn('Campo Documento_PremioLiqDesc não encontrado no frame.')
+          }
+        } catch (e) {
+          log.warn(`Tab via Playwright falhou: ${e.message.substring(0, 60)}`)
+        }
+      } else {
+        log.warn('Frame interno não encontrado para Tab.')
+      }
+
+      // Agora clica Gravar via JS
+      await page.evaluate(() => {
+        const d2 = window.getDoc2(); if (!d2) return;
+        d2.getElementById('BtGravar').click();
+      })
+      await page.waitForTimeout(2000)
+
+      // Trata alertas (OK/SIM)
+      await page.evaluate(() => {
+        const d2 = window.getDoc2(); if (!d2) return;
+        window.clickBtn(d2, 'OK');
+      })
+      await page.waitForTimeout(2000)
+    } else {
+      // Fallback: espera o tempo total (fluxo antigo)
+      log.warn('Flag __premioPreenchido não detectada. Aguardando fluxo JS completo...')
+      await page.waitForTimeout(12000)
+    }
 
     const erroJs = await page.evaluate(() => window.__quiverErro || null)
 
@@ -359,7 +466,7 @@ module.exports = async function routeQuiverFaturasTransporte(req, res) {
             proposta_cia: '',
             inicio_vigencia: pre.periodo_inicio || '',
             fim_vigencia: pre.periodo_fim || '',
-            premio_liquido: String(pre.premio || '').replace('.', ','),
+            premio_liquido: normalizarPremio(pre.premio),
             vencimento: pre.vencimento || '',
           }
           log.ok(`Usando dados pré-extraídos: ${arq.originalname} — apólice ${dados.apolice}`)

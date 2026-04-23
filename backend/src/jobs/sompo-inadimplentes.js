@@ -72,21 +72,127 @@ module.exports = async function routeSompoInadimplentes(req, res) {
       // 1. Login
       log.info('Acessando portal Sompo...')
       await page.goto(PORTAL_URL, { waitUntil: 'networkidle', timeout: 45000 })
-      await page.waitForTimeout(2000)
-      await page.locator('input[name*="user"], input[id*="user"], input[type="text"]').first().fill(LOGIN_USER)
-      await page.locator('input[type="password"]').first().fill(LOGIN_SENHA)
-      await page.locator('button[type="submit"], input[type="submit"], button:has-text("Entrar")').first().click()
-      await page.waitForLoadState('networkidle', { timeout: 30000 })
       await page.waitForTimeout(3000)
+      await ss(page, 'sompo_01_login.png')
+
+      // Aceita cookies se o banner aparecer (bloqueia cliques)
+      try {
+        const btnCookies = page.locator('button:has-text("Aceitar todos os cookies"), button:has-text("Aceitar todos"), button:has-text("Aceitar")').first()
+        if (await btnCookies.count() > 0 && await btnCookies.isVisible().catch(() => false)) {
+          await btnCookies.click()
+          log.info('Banner de cookies aceito.')
+          await page.waitForTimeout(1500)
+        }
+      } catch {}
+
+      // Preenche usuário — usa placeholder específico (evita pegar campo de busca do header)
+      log.info('Preenchendo usuário/senha...')
+      const campoUser = page.locator('input[placeholder*="usuário" i], input[placeholder*="usuario" i], input[placeholder="Digite o usuário"]').first()
+      await campoUser.waitFor({ state: 'visible', timeout: 15000 })
+      await campoUser.fill(LOGIN_USER)
+
+      const campoSenha = page.locator('input[type="password"]:visible, input[placeholder*="senha" i]').first()
+      await campoSenha.waitFor({ state: 'visible', timeout: 10000 })
+      await campoSenha.fill(LOGIN_SENHA)
+
+      await ss(page, 'sompo_02_preenchido.png')
+
+      // Clica Acessar — filtra APENAS botão visível com texto exato "Acessar"
+      // (evita pegar botão "Avançar" de modal hidden "Alterar Senha" do OutSystems)
+      let btnAcessar = page.locator('button:visible:has-text("Acessar"), input[type="submit"][value="Acessar"]:visible').first()
+      if (await btnAcessar.count() === 0) {
+        // Fallback: submit dentro de form visível com campo senha
+        btnAcessar = page.locator('form:has(input[type="password"]:visible) button[type="submit"]:visible, form:has(input[type="password"]:visible) input[type="submit"]:visible').first()
+      }
+      await btnAcessar.waitFor({ state: 'visible', timeout: 10000 })
+      await btnAcessar.click({ force: true }) // force ignora overlays
+      await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {})
+      await page.waitForTimeout(4000)
+      await ss(page, 'sompo_03_logado.png')
       atualizar(jobId, { progresso: 1 })
 
       // 2. Navegar para COBRANÇA > Consultar Parcelas
+      // Portal usa OutSystems — menu top tem: PRODUTOS, COTAÇÕES, FATURAMENTO, COBRANÇA, ...
+      // O texto pode estar em span/li/div dentro do <a> ou num wrapper
       log.info('Navegando para COBRANÇA → Consultar Parcelas...')
-      await page.locator('a:has-text("COBRANÇA"), a:has-text("Cobrança"), a:has-text("COBRAN")').first().click()
-      await page.waitForTimeout(1500)
-      await page.locator('a:has-text("Consultar Parcelas"), a:has-text("2ª via"), a:has-text("Boleto")').first().click()
-      await page.waitForLoadState('networkidle')
-      await page.waitForTimeout(2000)
+
+      let cobrancaClicado = false
+      const seletoresCobranca = [
+        'a:has-text("COBRANÇA")',
+        'a:has-text("Cobrança")',
+        'nav a:has-text("COBRAN")',
+        'li:has-text("COBRANÇA") a',
+        'li:has-text("COBRANÇA")',
+        '[role="menuitem"]:has-text("COBRANÇA")',
+        'span:has-text("COBRANÇA")',
+      ]
+
+      for (const sel of seletoresCobranca) {
+        try {
+          const el = page.locator(sel).first()
+          if (await el.count() > 0 && await el.isVisible().catch(() => false)) {
+            await el.hover()
+            await page.waitForTimeout(300)
+            await el.click({ force: true })
+            cobrancaClicado = true
+            log.info(`Clicou COBRANÇA via: ${sel}`)
+            break
+          }
+        } catch {}
+      }
+
+      // Fallback JS: busca qualquer elemento clicável com texto "COBRANÇA"
+      if (!cobrancaClicado) {
+        const clicou = await page.evaluate(() => {
+          const els = document.querySelectorAll('a, button, li, span, div')
+          for (const el of els) {
+            const txt = el.textContent?.trim().toUpperCase()
+            if (txt === 'COBRANÇA' && el.offsetWidth > 0) { el.click(); return true }
+          }
+          return false
+        })
+        if (clicou) {
+          cobrancaClicado = true
+          log.info('Clicou COBRANÇA via JS.')
+        }
+      }
+
+      if (!cobrancaClicado) {
+        await ss(page, 'sompo_sem_cobranca.png')
+        throw new Error('NAVEGACAO: Não encontrou menu COBRANÇA no portal Sompo.')
+      }
+
+      await page.waitForTimeout(2500)
+      await ss(page, 'sompo_04_cobranca_menu.png')
+
+      // Agora clica em "Consultar Parcelas" no submenu
+      log.info('Clicando Consultar Parcelas...')
+      let consultarClicado = false
+      const seletoresConsultar = [
+        'a:has-text("Consultar Parcelas")',
+        'a:has-text("Consulta de Parcelas")',
+        'li:has-text("Consultar Parcelas") a',
+        'a:has-text("2ª via")',
+      ]
+      for (const sel of seletoresConsultar) {
+        try {
+          const el = page.locator(sel).first()
+          if (await el.count() > 0 && await el.isVisible().catch(() => false)) {
+            await el.click({ force: true })
+            consultarClicado = true
+            log.info(`Clicou Consultar Parcelas via: ${sel}`)
+            break
+          }
+        } catch {}
+      }
+      if (!consultarClicado) {
+        await ss(page, 'sompo_sem_consultar.png')
+        throw new Error('NAVEGACAO: Não encontrou "Consultar Parcelas" no submenu COBRANÇA.')
+      }
+
+      await page.waitForLoadState('networkidle').catch(() => {})
+      await page.waitForTimeout(3000)
+      await ss(page, 'sompo_05_consultar.png')
       atualizar(jobId, { progresso: 2 })
 
       // 3. Filtros: Situação=Pendente, Ramo=Todos, período amplo

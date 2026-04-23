@@ -1,9 +1,7 @@
 // src/jobs/quiver-faturas.js
-const log = require('../lib/logger')
+// Stub legacy — redireciona para o job completo de faturas de transporte.
+// A implementação real está em quiver-faturas-transporte.js.
+const routeTransporte = require('./quiver-faturas-transporte')
 
-module.exports = async function routeQuiverFaturas(req, res) {
-  const arquivos = req.files || []
-  log.info(`Job quiver-faturas solicitado — ${arquivos.length} arquivo(s)`)
-  // TODO: integrar com automacao Quiver PRO via Playwright
-  res.json({ ok: true, mensagem: `${arquivos.length} fatura(s) enfileirada(s). Resultado por email.` })
-}
+module.exports = routeTransporte
+module.exports.getJobStatus = routeTransporte.getJobStatus

@@ -68,7 +68,7 @@ const FERRAMENTAS = [
   {
     slug: 'chubb-inadimplentes',
     nome: 'Chubb — Parcelas Pendentes',
-    descricao: 'ChubbNet → Serviços → Financeiro → Cobrança · todos os ramos · 120 dias',
+    descricao: 'ChubbNet (Azure B2C) → Serviços → Financeiro → Cobrança · 120 dias',
     responsavel: 'João',
     seguradora: 'Chubb',
     tipo: 'automatico',
