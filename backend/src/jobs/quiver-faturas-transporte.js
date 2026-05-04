@@ -121,37 +121,8 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
                 window.setField(d2, 'Documento_DataVencPrimeira', vencimento);
                 const okPremio = window.setField(d2, 'Documento_PremioLiqDesc', premioLiq);
                 if (!okPremio) { window.__quiverErro = 'CAMPO_PREMIO_NAO_ENCONTRADO'; return; }
-
-                // Forçar recálculo: focus → input → change → blur + click em outro campo
-                const cp = d2.getElementById('Documento_PremioLiqDesc');
-                if (cp) {
-                  cp.focus();
-                  cp.dispatchEvent(new Event('input', { bubbles: true }));
-                  cp.dispatchEvent(new Event('change', { bubbles: true }));
-                  cp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', keyCode: 9, which: 9, bubbles: true }));
-                  cp.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab', keyCode: 9, which: 9, bubbles: true }));
-                  cp.blur();
-                  // Clica em outro campo para forçar saída de foco
-                  const outroCampo = d2.getElementById('Documento_DataVencPrimeira') || d2.getElementById('Documento_PremioLiqServ');
-                  if (outroCampo) { outroCampo.focus(); outroCampo.click(); outroCampo.blur(); }
-                  // Postback ASP.NET se existir
-                  try { if (d2.defaultView && d2.defaultView.__doPostBack) d2.defaultView.__doPostBack(cp.name || cp.id, ''); } catch(e) {}
-                }
-
-                // Aguarda recálculo (3s) e clica Gravar
-                setTimeout(() => {
-                  const d2b = window.getDoc2(); if (!d2b) { window.__quiverErro = 'IFRAME_PERDIDO_PREMIO'; return; }
-                  const btn = d2b.getElementById('BtGravar');
-                  if (!btn) { window.__quiverErro = 'BT_GRAVAR_PREMIO_NAO_ENCONTRADO'; return; }
-                  btn.click();
-                  setTimeout(() => {
-                    const d2c = window.getDoc2(); if (!d2c) return;
-                    window.clickBtn(d2c, 'OK');
-                    const errs = window.lerErros(d2c);
-                    if (errs && !window.__quiverErro) window.__quiverErro = 'GRAVAR2:' + errs;
-                    window.__premioPreenchido = true;
-                  }, 2500);
-                }, 3000);
+                // Sinaliza que prêmio está preenchido — Playwright vai fazer Tab REAL e Gravar
+                window.__aguardandoTabPlaywright = true;
               }, 2000);
             }, 6000);
           }, 3500);
@@ -335,20 +306,67 @@ async function cadastrarFatura(page, fatura, idx) {
       '${fatura.seguradora || ''}'
     )`)
 
-    // Espera o JS completar todo o fluxo (Dados → Gravar → Prêmios → Tab → Gravar)
-    // Chain ~28s. Polling a cada 2s até flag ficar true ou erro detectado (máximo 60s).
-    log.info('Aguardando JS completar cadastro (Dados Básicos + Prêmios + Tab + Gravar)...')
-    let premioOk = false
+    // FASE 1: Aguardar JS completar até preencher o campo prêmio (~21s)
+    // Polling a cada 2s até flag __aguardandoTabPlaywright ou erro
+    log.info('Aguardando JS preencher campo prêmio...')
+    let aguardandoTab = false
     let erroAntes = null
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 20; i++) {
       await page.waitForTimeout(2000)
-      premioOk = await page.evaluate(() => window.__premioPreenchido === true)
+      aguardandoTab = await page.evaluate(() => window.__aguardandoTabPlaywright === true)
       erroAntes = await page.evaluate(() => window.__quiverErro || null)
-      if (premioOk || erroAntes) break
+      if (aguardandoTab || erroAntes) break
     }
 
-    if (!premioOk && !erroAntes) {
-      log.warn('Timeout aguardando flag __premioPreenchido. Continuando para verificar erros...')
+    if (erroAntes) {
+      log.warn(`Erro JS antes do Tab: ${erroAntes}`)
+    } else if (aguardandoTab) {
+      // FASE 2: Tab REAL via Playwright usando frameLocator (chain de iframes)
+      log.info('Prêmio preenchido. Fazendo Tab REAL via Playwright frameLocator...')
+      try {
+        // Quiver tem 2 iframes aninhados: ZonaInterna > ZonaInterna
+        const innerFrame = page.frameLocator('#ZonaInterna').frameLocator('#ZonaInterna')
+        const campoPremio = innerFrame.locator('#Documento_PremioLiqDesc')
+
+        // Click no campo + Tab real (evento browser nativo, dispara AutoPostBack ASP.NET)
+        await campoPremio.click({ timeout: 10000 })
+        await page.waitForTimeout(500)
+        await campoPremio.press('Tab')
+        log.info('✓ Tab REAL pressionado no campo prêmio.')
+
+        // Aguarda recálculo do Quiver (Prêmio Mensal = Prêmio + IOF)
+        await page.waitForTimeout(4000)
+
+        // Verifica se Prêmio Mensal foi calculado
+        const premioMensal = await innerFrame.locator('#Documento_PremioMensal, [id*="PremioMensal"]').first().inputValue().catch(() => '?')
+        log.info(`Prêmio Mensal após Tab: "${premioMensal}"`)
+
+        // Agora clica GRAVAR via JS
+        log.info('Clicando GRAVAR nos Prêmios...')
+        await page.evaluate(() => {
+          const d2 = window.getDoc2()
+          if (!d2) { window.__quiverErro = 'IFRAME_PERDIDO_GRAVAR'; return }
+          const btn = d2.getElementById('BtGravar')
+          if (!btn) { window.__quiverErro = 'BT_GRAVAR_PREMIO_NAO_ENCONTRADO'; return }
+          btn.click()
+        })
+        await page.waitForTimeout(2500)
+
+        // Trata alertas (OK)
+        await page.evaluate(() => {
+          const d2 = window.getDoc2(); if (!d2) return
+          window.clickBtn(d2, 'OK')
+          const errs = window.lerErros(d2)
+          if (errs && !window.__quiverErro) window.__quiverErro = 'GRAVAR2:' + errs
+          window.__premioPreenchido = true
+        })
+        await page.waitForTimeout(2000)
+      } catch (e) {
+        log.error(`Falha no Tab/Gravar Playwright: ${e.message.substring(0, 100)}`)
+        await page.evaluate((msg) => { window.__quiverErro = 'TAB_PLAYWRIGHT:' + msg }, e.message.substring(0, 100))
+      }
+    } else {
+      log.warn('Timeout aguardando flag __aguardandoTabPlaywright.')
     }
 
     const erroJs = await page.evaluate(() => window.__quiverErro || null)
