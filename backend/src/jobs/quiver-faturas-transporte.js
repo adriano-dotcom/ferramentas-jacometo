@@ -82,11 +82,20 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
       for (const btn of doc1.querySelectorAll('button')) {
         if (btn.textContent.trim() === 'Pesquisar') { btn.click(); break; }
       }
-      setTimeout(() => {
+      // Aguarda resultados da busca (retry até 12s — Quiver pode ser lento)
+      const tentarAbrir = (tentativa) => {
         const doc1 = document.getElementById('ZonaInterna').contentDocument;
         const links = doc1.querySelectorAll('a[onclick*="RowDblClick"]');
-        if (!links.length) { window.__quiverErro = 'APOLICE_NAO_ENCONTRADA'; return; }
-        links[0].click();
+        if (links.length) {
+          links[0].click();
+          continuarFluxo();
+          return;
+        }
+        if (tentativa < 6) { setTimeout(() => tentarAbrir(tentativa+1), 2000); return; }
+        window.__quiverErro = 'APOLICE_NAO_ENCONTRADA';
+      };
+      setTimeout(() => tentarAbrir(1), 3000);
+      const continuarFluxo = () => {
         setTimeout(() => {
           const d2 = window.getDoc2();
           if (!d2) { window.__quiverErro = 'IFRAME_NAO_CARREGOU'; return; }
@@ -111,23 +120,45 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
               const errs = window.lerErros(d2);
               if (errs && !window.__quiverErro) window.__quiverErro = 'GRAVAR1:' + errs;
             }, 1000);
-            setTimeout(() => {
-              const d2 = window.getDoc2(); if (!d2) return;
+            // Polling: espera "Aguarde..." sumir, então abre Prêmios
+            const esperarAguardeESomir = (tentativa) => {
+              const d2 = window.getDoc2(); if (!d2) { if (tentativa < 30) setTimeout(() => esperarAguardeESomir(tentativa+1), 1000); return; }
+              // Procura overlay/modal "Aguarde" no doc principal e no doc2
+              const textosOverlay = [document.body.innerText, d2.body ? d2.body.innerText : ''].join(' ').toLowerCase()
+              const aguardando = textosOverlay.includes('aguarde') && textosOverlay.includes('processando')
+              if (aguardando && tentativa < 30) { setTimeout(() => esperarAguardeESomir(tentativa+1), 1000); return; }
+              // OK — abre Prêmios
               for (const a of d2.querySelectorAll('a')) {
                 if (a.textContent.trim().includes('Prêmio')||a.textContent.trim().includes('Premio')) { a.click(); break; }
               }
               setTimeout(() => {
                 const d2 = window.getDoc2(); if (!d2) return;
+                // Verifica alerta "É necessário salvar..."
+                const txt = (d2.body.innerText || '').toLowerCase()
+                if (txt.includes('necessário salvar') || txt.includes('necessario salvar')) {
+                  window.__quiverErro = 'ABA_PREMIOS_BLOQUEADA_GRAVAR_PRIMEIRO';
+                  return;
+                }
                 window.setField(d2, 'Documento_DataVencPrimeira', vencimento);
-                const okPremio = window.setField(d2, 'Documento_PremioLiqDesc', premioLiq);
-                if (!okPremio) { window.__quiverErro = 'CAMPO_PREMIO_NAO_ENCONTRADO'; return; }
-                // Sinaliza que prêmio está preenchido — Playwright vai fazer Tab REAL e Gravar
-                window.__aguardandoTabPlaywright = true;
-              }, 2000);
-            }, 6000);
+                window.setField(d2, 'Documento_PremioLiqDesc', premioLiq);
+                setTimeout(() => {
+                  const d2 = window.getDoc2(); if (!d2) return;
+                  const btg2 = d2.getElementById('BtGravar');
+                  if (btg2) btg2.click();
+                  setTimeout(() => {
+                    const d2 = window.getDoc2(); if (!d2) return;
+                    window.clickBtn(d2, 'OK');
+                    const errs = window.lerErros(d2);
+                    if (errs && !window.__quiverErro) window.__quiverErro = 'GRAVAR2:' + errs;
+                    window.__premioGravado = true;
+                  }, 2500);
+                }, 2000);
+              }, 2500);
+            };
+            setTimeout(() => esperarAguardeESomir(1), 3000);
           }, 3500);
         }, 3000);
-      }, 3000);
+      };
     }, 2000);
   }, 2000);
 };
@@ -306,68 +337,253 @@ async function cadastrarFatura(page, fatura, idx) {
       '${fatura.seguradora || ''}'
     )`)
 
-    // FASE 1: Aguardar JS completar até preencher o campo prêmio (~21s)
-    // Polling a cada 2s até flag __aguardandoTabPlaywright ou erro
-    log.info('Aguardando JS preencher campo prêmio...')
-    let aguardandoTab = false
+    // Aguarda o JS executar todo o fluxo (dados básicos + Prêmios + GRAVAR)
+    log.info('Aguardando JS executar fluxo completo (dados básicos + prêmio + gravar)...')
+    let gravado = false
     let erroAntes = null
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 30; i++) {
       await page.waitForTimeout(2000)
-      aguardandoTab = await page.evaluate(() => window.__aguardandoTabPlaywright === true)
+      gravado = await page.evaluate(() => window.__premioGravado === true)
       erroAntes = await page.evaluate(() => window.__quiverErro || null)
-      if (aguardandoTab || erroAntes) break
+      if (gravado || erroAntes) break
     }
 
-    if (erroAntes) {
-      log.warn(`Erro JS antes do Tab: ${erroAntes}`)
-    } else if (aguardandoTab) {
-      // FASE 2: Tab REAL via Playwright usando frameLocator (chain de iframes)
-      log.info('Prêmio preenchido. Fazendo Tab REAL via Playwright frameLocator...')
-      try {
-        // Quiver tem 2 iframes aninhados: ZonaInterna > ZonaInterna
-        const innerFrame = page.frameLocator('#ZonaInterna').frameLocator('#ZonaInterna')
-        const campoPremio = innerFrame.locator('#Documento_PremioLiqDesc')
+    if (false) {
+      // FASE 2 desativada — JS agora faz tudo (volta ao fluxo simples que funcionava)
+      log.info('Aba Prêmios pronta. Buscando frame com #Documento_PremioLiquido...')
 
-        // Click no campo + Tab real (evento browser nativo, dispara AutoPostBack ASP.NET)
-        await campoPremio.click({ timeout: 10000 })
-        await page.waitForTimeout(500)
-        await campoPremio.press('Tab')
-        log.info('✓ Tab REAL pressionado no campo prêmio.')
-
-        // Aguarda recálculo do Quiver (Prêmio Mensal = Prêmio + IOF)
-        await page.waitForTimeout(4000)
-
-        // Verifica se Prêmio Mensal foi calculado
-        const premioMensal = await innerFrame.locator('#Documento_PremioMensal, [id*="PremioMensal"]').first().inputValue().catch(() => '?')
-        log.info(`Prêmio Mensal após Tab: "${premioMensal}"`)
-
-        // Agora clica GRAVAR via JS
-        log.info('Clicando GRAVAR nos Prêmios...')
-        await page.evaluate(() => {
-          const d2 = window.getDoc2()
-          if (!d2) { window.__quiverErro = 'IFRAME_PERDIDO_GRAVAR'; return }
-          const btn = d2.getElementById('BtGravar')
-          if (!btn) { window.__quiverErro = 'BT_GRAVAR_PREMIO_NAO_ENCONTRADO'; return }
-          btn.click()
-        })
-        await page.waitForTimeout(2500)
-
-        // Trata alertas (OK)
-        await page.evaluate(() => {
-          const d2 = window.getDoc2(); if (!d2) return
-          window.clickBtn(d2, 'OK')
-          const errs = window.lerErros(d2)
-          if (errs && !window.__quiverErro) window.__quiverErro = 'GRAVAR2:' + errs
-          window.__premioPreenchido = true
-        })
-        await page.waitForTimeout(2000)
-      } catch (e) {
-        log.error(`Falha no Tab/Gravar Playwright: ${e.message.substring(0, 100)}`)
-        await page.evaluate((msg) => { window.__quiverErro = 'TAB_PLAYWRIGHT:' + msg }, e.message.substring(0, 100))
+      const allFrames = page.frames()
+      log.info(`Total de frames: ${allFrames.length}`)
+      let frameAlvo = null
+      let campoIdReal = 'Documento_PremioLiquido'
+      for (const fr of allFrames) {
+        try {
+          const has = await fr.evaluate(() => {
+            const el = document.getElementById('Documento_PremioLiquido')
+            return !!(el && el.tagName === 'INPUT')
+          })
+          if (has) { frameAlvo = fr; log.info(`✓ Frame com #Documento_PremioLiquido: ${fr.url().substring(0,80)}`); break }
+        } catch {}
       }
-    } else {
-      log.warn('Timeout aguardando flag __aguardandoTabPlaywright.')
+
+      // Fallback de descoberta dinâmica caso o ID mude
+      if (!frameAlvo) for (const fr of allFrames) {
+        try {
+          const found = await fr.evaluate(() => {
+            const regex = /^\s*pr[êe]mio l[íi]quido mensal\s*$/i
+            const isEditable = (el) => el && el.tagName === 'INPUT' && !el.readOnly && !el.disabled && el.type !== 'hidden'
+
+            // Estratégia A: aria-label / placeholder com texto exato
+            for (const i of document.querySelectorAll('input')) {
+              const lab = (i.getAttribute('aria-label') || '') + ' ' + (i.getAttribute('placeholder') || '')
+              if (regex.test(lab.trim()) && isEditable(i)) {
+                return { id: i.id, name: i.name, value: i.value, via: 'aria/placeholder' }
+              }
+            }
+
+            // Estratégia B: encontra elemento de texto exato "Prêmio líquido mensal"
+            // e busca input EDITÁVEL adjacente (label-for, next-sibling, célula vizinha)
+            const elsTexto = []
+            for (const el of document.querySelectorAll('label, span, td, div')) {
+              const t = (el.textContent || '').trim()
+              if (regex.test(t)) elsTexto.push(el)
+            }
+            for (const l of elsTexto) {
+              // (1) label[for]
+              const forId = l.getAttribute && l.getAttribute('for')
+              if (forId) { const el = document.getElementById(forId); if (isEditable(el)) return { id: el.id, name: el.name, value: el.value, via: 'label-for' } }
+              // (2) próximo input no fluxo do DOM
+              let n = l.nextElementSibling
+              while (n) {
+                if (n.tagName === 'INPUT' && isEditable(n)) return { id: n.id, name: n.name, value: n.value, via: 'sibling' }
+                const inner = n.querySelector && n.querySelector('input')
+                if (isEditable(inner)) return { id: inner.id, name: inner.name, value: inner.value, via: 'sibling-inner' }
+                n = n.nextElementSibling
+              }
+              // (3) célula <td> vizinha
+              const td = l.closest && l.closest('td')
+              if (td) {
+                let sib = td.nextElementSibling
+                while (sib) {
+                  const inp = sib.querySelector && sib.querySelector('input')
+                  if (isEditable(inp)) return { id: inp.id, name: inp.name, value: inp.value, via: 'td-next' }
+                  sib = sib.nextElementSibling
+                }
+              }
+              // (4) input EDITÁVEL mais próximo dentro do mesmo <tr> (depois do label)
+              const tr = l.closest && l.closest('tr')
+              if (tr) {
+                const inputs = Array.from(tr.querySelectorAll('input')).filter(isEditable)
+                if (inputs.length) return { id: inputs[0].id, name: inputs[0].name, value: inputs[0].value, via: 'tr-input' }
+              }
+            }
+
+            // Estratégia C (debug): retorna todos inputs editáveis com label próximo
+            const dump = []
+            for (const i of document.querySelectorAll('input')) {
+              if (!isEditable(i)) continue
+              const idn = ((i.id || '') + ' ' + (i.name || '')).toLowerCase()
+              if (idn.includes('premio') || idn.includes('mensal') || idn.includes('liquido') || idn.includes('liq')) {
+                dump.push({ id: i.id, name: i.name, value: i.value })
+              }
+            }
+            return dump.length ? { id: dump[0].id, name: dump[0].name, value: dump[0].value, via: 'fallback', candidatos: dump } : null
+          })
+          if (found) {
+            frameAlvo = fr
+            campoIdReal = found.id
+            log.info(`✓ Frame "Prêmio líquido mensal" — ID="${found.id}" name="${found.name}" via=${found.via}`)
+            if (found.candidatos) log.info(`  candidatos: ${JSON.stringify(found.candidatos)}`)
+            break
+          }
+        } catch {}
+      }
+
+      if (frameAlvo && campoIdReal) {
+        try {
+          const premioVal = await page.evaluate(() => window.__premioParaDigitar)
+          log.info(`Digitando prêmio "${premioVal}" em #${campoIdReal}`)
+
+          // Lista todos inputs Prêmio/Mensal antes da digitação (debug)
+          const inputsAntes = await frameAlvo.evaluate(() => {
+            return Array.from(document.querySelectorAll('input')).filter(i => {
+              const idn = ((i.id||'') + ' ' + (i.name||'')).toLowerCase()
+              return idn.includes('premio') || idn.includes('mensal') || idn.includes('iof')
+            }).map(i => ({ id: i.id, value: i.value, readonly: i.readOnly }))
+          }).catch(() => [])
+          log.info(`Inputs Prêmio/IOF antes: ${JSON.stringify(inputsAntes)}`)
+
+          // DEBUG: inspeciona TODOS os atributos do elemento pra achar onde está o postback real
+          const attrs = await frameAlvo.evaluate((id) => {
+            const el = document.getElementById(id)
+            if (!el) return null
+            const out = { tagName: el.tagName, type: el.type, outerHTML: el.outerHTML.substring(0, 400) }
+            for (const a of el.attributes) out[a.name] = a.value.substring(0, 200)
+            return out
+          }, campoIdReal)
+          log.info(`Atributos #${campoIdReal}: ${JSON.stringify(attrs)}`)
+
+          // DEBUG: localiza qualquer elemento com onclick/texto contendo "AbrePremio" ou "Abrir"
+          const toggles = await frameAlvo.evaluate(() => {
+            const results = []
+            for (const el of document.querySelectorAll('a, input, button, span, label, div, img')) {
+              const oc = (el.getAttribute('onclick') || '') + ' ' + (el.getAttribute('onchange') || '')
+              const txt = (el.textContent || '').trim().substring(0, 80)
+              const id = el.id || ''
+              const cls = el.className || ''
+              const matches = /abrepremio|abrirpremio|abrir.?pr[êe]mio|premioaberto|premioschk|abrir.?fatura|chk.?premio|liberar.?pr[êe]mio/i
+              if (matches.test(oc) || matches.test(txt) || matches.test(id) || matches.test(cls)) {
+                results.push({ tag: el.tagName, id, cls: cls.substring(0,60), txt, onclick: oc.substring(0,150), type: el.type })
+              }
+            }
+            return results.slice(0, 15)
+          }).catch(() => [])
+          log.info(`Toggles encontrados: ${JSON.stringify(toggles)}`)
+
+          // Estratégia FINAL: o campo está disabled + cálculo é via eventoAjaxJQuery('PremioLiquidoOnBlur')
+          // 1) Remove disabled
+          // 2) Set value + onfocus (SetOldValue) + onchange (SetUpdate+Chkvalor) + onkeyup (ChkNumber)
+          // 3) Chama eventoAjaxJQuery('PremioLiquidoOnBlur') que faz AJAX ao servidor → recalcula IOF + total
+          const aplicacao = await frameAlvo.evaluate((args) => {
+            const { id, valor } = args
+            const el = document.getElementById(id)
+            if (!el) return { ok: false, erro: 'campo nao encontrado' }
+            el.scrollIntoView({ block: 'center' })
+
+            const estavaDisabled = el.disabled
+            if (estavaDisabled) { el.disabled = false; el.removeAttribute('disabled') }
+
+            // Captura valor antigo (Quiver compara via SetOldValue)
+            el.focus()
+            try { if (typeof window.SetOldValue === 'function') window.SetOldValue(el) } catch {}
+
+            // Define novo valor
+            el.value = valor
+            // Dispara eventos de teclado e change (handlers inline)
+            for (const evt of ['keydown','keypress','input','keyup','change']) {
+              el.dispatchEvent(new Event(evt, { bubbles: true }))
+            }
+            try { (new Function(el.getAttribute('onchange') || '')).call(el) } catch {}
+
+            // CHAMA O CÁLCULO REAL DO QUIVER (via AJAX jQuery)
+            let ajaxOk = false
+            try {
+              if (typeof window.eventoAjaxJQuery === 'function') {
+                window.eventoAjaxJQuery('PremioLiquidoOnBlur')
+                ajaxOk = true
+              }
+            } catch (e) {}
+
+            // Dispara onblur inline também (redundância)
+            try { (new Function(el.getAttribute('onblur') || '')).call(el) } catch {}
+            el.dispatchEvent(new Event('blur', { bubbles: true }))
+
+            return { ok: true, valorFinal: el.value, estavaDisabled, ajaxOk }
+          }, { id: campoIdReal, valor: premioVal })
+          log.info(`Aplicação prêmio: ${JSON.stringify(aplicacao)}`)
+          log.info('✓ AJAX disparado, aguardando recálculo no servidor...')
+
+          // Aguarda AJAX servidor + recálculo de IOF e Prêmio Mensal
+          await page.waitForTimeout(8000)
+
+          // Valida estado pós-Tab — verifica se Prêmio Total foi recalculado
+          const pos = await frameAlvo.evaluate(() => {
+            const v = id => { const e = document.getElementById(id); return e ? e.value : null }
+            return {
+              premioLiquido: v('Documento_PremioLiquido'),
+              premioLiqDesc: v('Documento_PremioLiqDesc'),
+              percIof: v('Documento_PercIof'),
+              iof: v('Documento_Iof'),
+              premioTotal: v('Documento_PremioTotal'),
+              premioTotal2: v('Documento_PremioTotal2'),
+            }
+          }).catch(() => ({}))
+          log.info(`Estado pós-Tab: ${JSON.stringify(pos)}`)
+          const premioOk = pos.premioTotal && pos.premioTotal !== '0,00' && pos.premioLiquido !== '0,00'
+          if (!premioOk) {
+            log.warn(`⚠️ Prêmio não persistiu (liq=${pos.premioLiquido} total=${pos.premioTotal}). NÃO vai gravar.`)
+            await page.evaluate(() => { window.__quiverErro = 'PREMIO_NAO_PERSISTIU' })
+          } else {
+            log.info(`✓ Prêmio recalculado: líq=${pos.premioLiquido} IOF=${pos.iof} total=${pos.premioTotal}. Clicando GRAVAR...`)
+            // Clica GRAVAR via JS (rodapé)
+            await page.evaluate(() => {
+              const d2 = window.getDoc2(); if (!d2) { window.__quiverErro = 'IFRAME_PERDIDO_GRAVAR'; return }
+              const btn = d2.getElementById('BtGravar')
+              if (!btn) { window.__quiverErro = 'BT_GRAVAR_NAO_ENCONTRADO'; return }
+              btn.click()
+            })
+            await page.waitForTimeout(2500)
+          }
+
+          await page.evaluate(() => {
+            const d2 = window.getDoc2(); if (!d2) return
+            window.clickBtn(d2, 'OK')
+            const errs = window.lerErros(d2)
+            if (errs && !window.__quiverErro) window.__quiverErro = 'GRAVAR2:' + errs
+          })
+          await page.waitForTimeout(2000)
+        } catch (e) {
+          log.error(`Falha digitar+Tab: ${e.message.substring(0, 150)}`)
+          await page.evaluate((m) => { window.__quiverErro = 'TAB_PLAYWRIGHT:' + m }, e.message.substring(0, 100))
+        }
+      } else {
+        log.error('Campo editável "Prêmio líquido mensal" não localizado em nenhum frame!')
+        // Debug: lista TODOS inputs do frame mais provável
+        try {
+          for (const fr of allFrames) {
+            const dump = await fr.evaluate(() => {
+              return Array.from(document.querySelectorAll('input')).slice(0, 60).map(i => ({ id: i.id, name: i.name, type: i.type, readonly: i.readOnly }))
+            }).catch(() => null)
+            if (dump && dump.length > 5) {
+              log.info(`Dump frame ${fr.url().substring(0,60)}: ${JSON.stringify(dump).substring(0,800)}`)
+            }
+          }
+        } catch {}
+        await page.evaluate(() => { window.__quiverErro = 'CAMPO_PREMIO_MENSAL_NAO_ENCONTRADO' })
+      }
     }
+    if (erroAntes) log.warn(`Erro JS: ${erroAntes}`)
+    if (!gravado && !erroAntes) log.warn('Timeout — JS não sinalizou __premioGravado.')
 
     const erroJs = await page.evaluate(() => window.__quiverErro || null)
 
