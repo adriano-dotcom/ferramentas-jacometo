@@ -242,11 +242,15 @@ ALLIANZ:
 - Use o "Nº Fatura" do rodapé da página 2 como endosso — NÃO use o da página 1 pois pode ser diferente.
 - A apólice completa também deve vir do rodapé da página 2.
 
-SOMPO / AKAD / AXA / CHUBB:
+AKAD:
+- apolice: use o "Número da Apólice Susep" COMPLETO (24 dígitos, ex: 027982025000106550001812). NÃO use o "Número da Apólice Akad".
+- endosso: últimos 6 dígitos do "Número da Fatura Susep" MANTENDO zeros à esquerda (ex: "000009", NÃO "9"). Em AKAD o endosso é a sequência final após a apólice na "Número da Fatura Susep".
+
+SOMPO / AXA / CHUBB:
 - Siga os campos conforme aparecem no documento.
 
 Formato de resposta:
-{"seguradora":"Tokio Marine|Sompo|AKAD|AXA|Chubb|Allianz","apolice":"número completo","endosso":"EXATAMENTE como na fatura, SEM zeros à esquerda (ex: 5, não 005)","ramo":"54 ou 55","segurado":"","cnpj":"","emissao":"DD/MM/YYYY","proposta_cia":"","inicio_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques)","fim_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques)","premio_liquido":"ex:1.234,56","vencimento":"DD/MM/YYYY"}` },
+{"seguradora":"Tokio Marine|Sompo|AKAD|AXA|Chubb|Allianz","apolice":"número completo","endosso":"EXATAMENTE como na fatura, SEM zeros à esquerda (ex: 5, não 005). EXCEÇÃO: AKAD mantém 6 dígitos com zeros (ex: 000009)","ramo":"54 ou 55","segurado":"","cnpj":"","emissao":"DD/MM/YYYY","proposta_cia":"","inicio_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques)","fim_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques)","premio_liquido":"ex:1.234,56","vencimento":"DD/MM/YYYY"}` },
         ],
       }],
     }),
@@ -309,6 +313,16 @@ async function cadastrarFatura(page, fatura, idx) {
     // Tokio Marine: últimos 6 dígitos
     apoliceQuiver = apoliceQuiver.slice(-6)
     log.info(`  Tokio: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver}`)
+  } else if (segLower.includes('akad')) {
+    // AKAD: últimos 7 dígitos da "Número da Apólice Susep" (mantém zeros)
+    // ex: 027982025000106550001812 → 0001812
+    if (apoliceQuiver.length > 7) apoliceQuiver = apoliceQuiver.slice(-7)
+    // Endosso: últimos 6 dígitos com zeros (ex: 000009)
+    if (fatura.endosso) {
+      const endNum = String(fatura.endosso).replace(/\D/g, '')
+      fatura.endosso = endNum.length >= 6 ? endNum.slice(-6) : endNum.padStart(6, '0')
+    }
+    log.info(`  AKAD: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver} | endosso → ${fatura.endosso}`)
   } else if (segLower.includes('axa')) {
     // AXA: formato 02852.2026.0043.RAMO.NNNNNNN
     // Ramo 0654 (RCTR-C) → últimos 5 dígitos sem zeros
