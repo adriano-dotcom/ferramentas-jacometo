@@ -8,6 +8,7 @@ const crypto = require('crypto')
 const log    = require('../lib/logger')
 const email  = require('../lib/email')
 const { abrirBrowser, fecharBrowser } = require('../lib/browser')
+const XLSX = require('xlsx')
 
 // ── Credenciais (lidas do painel de configurações) ──────────────────────────────
 const _credQuiver  = getCred('quiver')
@@ -57,6 +58,21 @@ window.setField = (doc, id, val) => {
   console.log('[Quiver] setField:', id, '=', val, '→ actual:', el.value);
   return true;
 };
+window.setSelectByText = (doc, id, text) => {
+  const el = doc.getElementById(id);
+  if (!el) { console.warn('[Quiver] setSelectByText: não encontrado:', id); return false; }
+  const alvo = String(text).trim().toLowerCase();
+  for (const opt of el.options || []) {
+    if ((opt.textContent || '').trim().toLowerCase() === alvo) {
+      el.value = opt.value;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      console.log('[Quiver] setSelectByText:', id, '=', text, '→ value:', opt.value);
+      return true;
+    }
+  }
+  console.warn('[Quiver] setSelectByText: opção não encontrada:', id, text);
+  return false;
+};
 window.clickBtn = (doc, text) => {
   for (const btn of doc.querySelectorAll('button, input[type="button"], a')) {
     if (btn.textContent.trim().includes(text) || (btn.value||'').includes(text)) { btn.click(); return true; }
@@ -67,7 +83,7 @@ window.lerErros = (doc) => {
   const sels = '.msg-erro,.alert-danger,.erro,span[style*="red"],[class*="error"],[class*="Error"],[id*="Error"]';
   return Array.from(doc.querySelectorAll(sels)).map(e => e.textContent.trim()).filter(Boolean).join(' | ');
 };
-window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimento, premioLiq, seguradora) => {
+window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimento, premioLiq, seguradora, subtipoLabel) => {
   for (const a of document.querySelectorAll('a')) {
     if (a.textContent.trim() === 'Operacional') { a.click(); break; }
   }
@@ -103,9 +119,21 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
           setTimeout(() => {
             const d2 = window.getDoc2();
             if (!d2) { window.__quiverErro = 'SUBTIPO_NAO_CARREGOU'; return; }
-            window.setField(d2, 'Documento_SubTipo', '36');
-            // Allianz: endosso com 6 dígitos (padding zeros). Tokio Marine: SEM zeros.
-            const endFmt = (seguradora || '').toLowerCase().includes('tokio') ? String(endosso) : String(endosso).padStart(6,'0');
+            const segL = (seguradora || '').toLowerCase();
+            const subL = (subtipoLabel || '').trim();
+            if (subL) {
+              // SubTipo informado explicitamente (ex: planilha AKAD RC-V → "FATURA MENSAL")
+              window.setSelectByText(d2, 'Documento_SubTipo', subL);
+            } else if (segL.includes('unimed')) {
+              // Unimed Vida em Grupo: subtipo "FATURA MENSAL"
+              window.setSelectByText(d2, 'Documento_SubTipo', 'FATURA MENSAL');
+            } else {
+              // Transporte: "Movimento Fatura - Transportes" (value=36)
+              window.setField(d2, 'Documento_SubTipo', '36');
+            }
+            // Allianz/AKAD: endosso com 6 dígitos (padding zeros). Tokio/Unimed/FATURA MENSAL: EXATO como veio.
+            const subUpper = subL.toUpperCase();
+            const endFmt = (segL.includes('tokio') || segL.includes('unimed') || subUpper === 'FATURA MENSAL') ? String(endosso) : String(endosso).padStart(6,'0');
             window.setField(d2, 'Documento_Endosso', endFmt);
             window.setField(d2, 'Documento_DataEmissao', emissao);
             window.setField(d2, 'Documento_InicioVigencia', inicio);
@@ -249,8 +277,18 @@ AKAD:
 SOMPO / AXA / CHUBB:
 - Siga os campos conforme aparecem no documento.
 
+UNIMED SEGUROS (Vida em Grupo / Acidentes Pessoais / Garantia Funeral — "Discriminação de Prêmios"):
+- seguradora: "Unimed Seguros".
+- apolice: use o "Código do Grupo" (ex: 82940). NÃO use os números das apólices VG/AP/AUXFUN do quadro à direita.
+- endosso: use o "Número Fatura" EXATAMENTE como aparece, sem zeros à esquerda (ex: 2682556).
+- inicio_vigencia / fim_vigencia: use o "Período de Vigência" (ex: "01/02/2026 a 28/02/2026" → 01/02/2026 e 28/02/2026). Este período é a vigência do endosso/fatura.
+- premio_liquido: use "Prêmio Líquido" (ex: 144,51).
+- vencimento: use "Data de Vencimento".
+- emissao: use "Data de Emissão".
+- ramo: deixe vazio (não é transporte).
+
 Formato de resposta:
-{"seguradora":"Tokio Marine|Sompo|AKAD|AXA|Chubb|Allianz","apolice":"número completo","endosso":"EXATAMENTE como na fatura, SEM zeros à esquerda (ex: 5, não 005). EXCEÇÃO: AKAD mantém 6 dígitos com zeros (ex: 000009)","ramo":"54 ou 55","segurado":"","cnpj":"","emissao":"DD/MM/YYYY","proposta_cia":"","inicio_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques)","fim_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques)","premio_liquido":"ex:1.234,56","vencimento":"DD/MM/YYYY"}` },
+{"seguradora":"Tokio Marine|Sompo|AKAD|AXA|Chubb|Allianz|Unimed Seguros","apolice":"número completo (Unimed: Código do Grupo)","endosso":"EXATAMENTE como na fatura, SEM zeros à esquerda (ex: 5, não 005). EXCEÇÃO: AKAD mantém 6 dígitos com zeros (ex: 000009)","ramo":"54 ou 55 (vazio para Unimed)","segurado":"","cnpj":"","emissao":"DD/MM/YYYY","proposta_cia":"","inicio_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques; Unimed: Período de Vigência)","fim_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques; Unimed: Período de Vigência)","premio_liquido":"ex:1.234,56","vencimento":"DD/MM/YYYY"}` },
         ],
       }],
     }),
@@ -269,6 +307,84 @@ Formato de resposta:
     if (parsed && parsed.premio_liquido) parsed.premio_liquido = normalizarPremio(parsed.premio_liquido)
     return parsed
   } catch { log.error(`JSON parse falhou: ${texto.substring(0,100)}`); return null }
+}
+
+// ── Parser de planilha (AKAD RC-V e similares) ────────────────────────────────
+
+function normalizarChave(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+}
+
+function valorPorChaves(row, ...candidatas) {
+  for (const c of candidatas) {
+    const k = normalizarChave(c)
+    if (row[k] !== undefined && row[k] !== '') return row[k]
+  }
+  return ''
+}
+
+function formatarData(v) {
+  if (v === null || v === undefined || v === '') return ''
+  // Se já é string "DD/MM/YYYY", retorna
+  const s = String(v).trim()
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s
+  // Se é serial Excel (número), converte
+  if (typeof v === 'number' || /^\d+(\.\d+)?$/.test(s)) {
+    const dt = XLSX.SSF.parse_date_code(Number(v))
+    if (dt) return `${String(dt.d).padStart(2,'0')}/${String(dt.m).padStart(2,'0')}/${dt.y}`
+  }
+  // Se ISO yyyy-mm-dd
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`
+  return s
+}
+
+function formatarPremioXlsx(v) {
+  if (v === null || v === undefined || v === '') return ''
+  if (typeof v === 'number') return v.toFixed(2).replace('.', ',')
+  // Strip prefixo monetário (ex: "R$ 112,50" → "112,50") e espaços
+  const limpo = String(v).replace(/r\$\s*/i, '').replace(/\s+/g, '').trim()
+  return normalizarPremio(limpo)
+}
+
+function parseXLSXFaturas(buffer, nomeArquivo) {
+  const wb = XLSX.read(buffer, { type: 'buffer', cellDates: false })
+  const faturas = []
+  for (const nomeAba of wb.SheetNames) {
+    const ws = wb.Sheets[nomeAba]
+    const rows = XLSX.utils.sheet_to_json(ws, { raw: false, defval: '' })
+    for (const raw of rows) {
+      // Normaliza chaves (acento, espaço, case)
+      const r = {}
+      for (const k of Object.keys(raw)) r[normalizarChave(k)] = raw[k]
+
+      const apolice  = String(valorPorChaves(r, 'Nº Apólice', 'No Apolice', 'Apolice', 'Numero Apolice') || '').trim()
+      const endosso  = String(valorPorChaves(r, 'Nº Endosso', 'No Endosso', 'Endosso', 'Numero Endosso') || '').trim()
+      const segNome  = String(valorPorChaves(r, 'Seguradora') || '').trim()
+      if (!apolice || !segNome) continue // linha vazia
+
+      const fatura = {
+        seguradora: segNome,
+        apolice,
+        endosso,
+        ramo: String(valorPorChaves(r, 'Ramo') || '').trim(),
+        segurado: String(valorPorChaves(r, 'Cliente', 'Segurado') || '').trim(),
+        cnpj: String(valorPorChaves(r, 'CNPJ') || '').trim(),
+        emissao: formatarData(valorPorChaves(r, 'Data Emissão', 'Data Emissao', 'Emissao')),
+        proposta_cia: String(valorPorChaves(r, 'Proposta Cia', 'Proposta') || '').trim(),
+        inicio_vigencia: formatarData(valorPorChaves(r, 'Início Vigência', 'Inicio Vigencia', 'Inicio Vigência')),
+        fim_vigencia:    formatarData(valorPorChaves(r, 'Término Vigência', 'Termino Vigencia', 'Termino Vigência', 'Fim Vigencia')),
+        premio_liquido:  formatarPremioXlsx(valorPorChaves(r, 'Prêmio Líquido', 'Premio Liquido', 'Premio')),
+        vencimento:      formatarData(valorPorChaves(r, 'Vencimento', 'Data Vencimento')),
+        subtipoLabel:    String(valorPorChaves(r, 'Sub-tipo Documento', 'Subtipo Documento', 'Sub-tipo') || '').trim(),
+        arquivoOriginal: nomeArquivo,
+      }
+      faturas.push(fatura)
+    }
+  }
+  return faturas
 }
 
 // ── Playwright ────────────────────────────────────────────────────────────────
@@ -323,6 +439,14 @@ async function cadastrarFatura(page, fatura, idx) {
       fatura.endosso = endNum.length >= 6 ? endNum.slice(-6) : endNum.padStart(6, '0')
     }
     log.info(`  AKAD: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver} | endosso → ${fatura.endosso}`)
+  } else if (segLower.includes('unimed')) {
+    // Unimed Seguros (Vida em Grupo): apólice no Quiver = Código do Grupo (ex: 82940)
+    // Endosso = Número Fatura (ex: 2682556), sem zeros à esquerda.
+    apoliceQuiver = String(apoliceQuiver).replace(/\D/g, '').replace(/^0+/, '') || apoliceQuiver
+    if (fatura.endosso) {
+      fatura.endosso = String(fatura.endosso).replace(/\D/g, '').replace(/^0+/, '') || fatura.endosso
+    }
+    log.info(`  Unimed: apólice (Código do Grupo) ${fatura.apolice} → Quiver busca ${apoliceQuiver} | endosso → ${fatura.endosso}`)
   } else if (segLower.includes('axa')) {
     // AXA: formato 02852.2026.0043.RAMO.NNNNNNN
     // Ramo 0654 (RCTR-C) → últimos 5 dígitos sem zeros
@@ -348,7 +472,7 @@ async function cadastrarFatura(page, fatura, idx) {
       '${apoliceQuiver}','${fatura.endosso}','${fatura.emissao}',
       '${fatura.inicio_vigencia}','${fatura.fim_vigencia}',
       '${fatura.proposta_cia || ''}','${fatura.vencimento}','${fatura.premio_liquido}',
-      '${fatura.seguradora || ''}'
+      '${fatura.seguradora || ''}','${fatura.subtipoLabel || ''}'
     )`)
 
     // Aguarda o JS executar todo o fluxo (dados básicos + Prêmios + GRAVAR)
@@ -644,12 +768,14 @@ async function enviarResumo(resultados, jobId) {
 
 module.exports = async function routeQuiverFaturasTransporte(req, res) {
   const arquivos = req.files || []
-  if (!arquivos.length) return res.status(400).json({ erro: 'Nenhum PDF enviado.' })
+  if (!arquivos.length) return res.status(400).json({ erro: 'Nenhum arquivo enviado.' })
 
   const jobId = criarJob(arquivos.length)
-  log.info(`Job ${jobId} — ${arquivos.length} PDF(s)`)
+  const nPdf  = arquivos.filter(a => a.originalname.toLowerCase().endsWith('.pdf')).length
+  const nXls  = arquivos.filter(a => /\.(xlsx|xls)$/i.test(a.originalname)).length
+  log.info(`Job ${jobId} — ${arquivos.length} arquivo(s) (${nPdf} PDF, ${nXls} XLSX)`)
 
-  res.json({ ok: true, jobId, mensagem: `${arquivos.length} PDF(s) recebido(s). Processando.` })
+  res.json({ ok: true, jobId, mensagem: `${arquivos.length} arquivo(s) recebido(s). Processando.` })
 
   setImmediate(async () => {
     const _inicio = new Date()
@@ -678,6 +804,38 @@ module.exports = async function routeQuiverFaturasTransporte(req, res) {
       const arq = arquivos[idx]
       try {
         let dados = null
+
+        // XLSX: planilha de faturas (uma linha por fatura — ex: AKAD RC-V)
+        if (/\.(xlsx|xls)$/i.test(arq.originalname)) {
+          try {
+            const buf = fs.readFileSync(arq.path)
+            const linhas = parseXLSXFaturas(buf, arq.originalname)
+            if (linhas.length) {
+              faturas.push(...linhas)
+              log.ok(`Planilha ${arq.originalname}: ${linhas.length} fatura(s) extraída(s)`)
+            } else {
+              const curr = JOBS.get(jobId)
+              atualizar(jobId, { resultados: [...curr.resultados, {
+                segurado: arq.originalname, apolice: '—', endosso: '—', ramo: '—',
+                premio_liquido: '—', vencimento: '—', status: 'FALHA',
+                tipo: 'EXTRACAO_FALHOU', label: 'Planilha sem linhas válidas',
+                orientacao: 'Verifique cabeçalhos: Nº Apólice, Nº Endosso, Seguradora, Início/Término Vigência, Data Emissão, Prêmio Líquido, Vencimento.',
+                screenshotPath: null,
+              }]})
+            }
+          } catch (e) {
+            log.error(`XLSX ${arq.originalname}: ${e.message}`)
+            const curr = JOBS.get(jobId)
+            atualizar(jobId, { resultados: [...curr.resultados, {
+              segurado: arq.originalname, apolice: '—', endosso: '—', ramo: '—',
+              premio_liquido: '—', vencimento: '—', status: 'FALHA',
+              tipo: 'EXTRACAO_FALHOU', label: 'Erro ao ler planilha',
+              orientacao: 'Verifique se o XLSX está íntegro.', erro: e.message, screenshotPath: null,
+            }]})
+          }
+          try { fs.unlinkSync(arq.path) } catch {}
+          continue
+        }
 
         // Se tem dados pré-extraídos do Jarvis OS, converte para formato do backend
         if (dadosPreExtraidos?.[idx]) {

@@ -183,7 +183,7 @@ export default function QuiverFaturasTransportePage() {
   useEffect(() => () => pararPoll(), [pararPoll])
 
   function adicionarArquivos(files: FileList) {
-    const novos = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.pdf'))
+    const novos = Array.from(files).filter(f => /\.(pdf|xlsx|xls)$/i.test(f.name))
     setArquivos(prev => {
       const nomes = new Set(prev.map(f => f.name))
       return [...prev, ...novos.filter(f => !nomes.has(f.name))]
@@ -219,7 +219,7 @@ export default function QuiverFaturasTransportePage() {
   }
 
   const statusLabel: Record<string, string> = {
-    extraindo:     '🔍 Lendo PDFs e extraindo dados via IA...',
+    extraindo:     '🔍 Lendo arquivos (PDF/XLSX) e extraindo dados...',
     cadastrando:   '⚙️  Cadastrando no Quiver PRO...',
     concluido:     '✅ Processamento concluído',
     erro_critico:  '❌ Erro crítico no processamento',
@@ -256,7 +256,7 @@ export default function QuiverFaturasTransportePage() {
             <div style={{ marginBottom: '1.25rem' }}>
               <h1 style={{ fontSize: 20, fontWeight: 500, marginBottom: 4 }}>Cadastro de Faturas de Transporte</h1>
               <p style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.5 }}>
-                Envie os PDFs (RCTR-C e RC-DC). O sistema extrai os dados automaticamente e cadastra no Quiver PRO.
+                Envie os PDFs (RCTR-C e RC-DC) ou a planilha XLSX (AKAD RC-V). O sistema extrai os dados e cadastra no Quiver PRO.
               </p>
             </div>
 
@@ -281,10 +281,10 @@ export default function QuiverFaturasTransportePage() {
             >
               <div style={{ fontSize: 26, marginBottom: 4 }}>📑</div>
               <div style={{ fontSize: 14, color: 'var(--text-2)' }}>
-                <strong style={{ color: 'var(--text)' }}>Clique</strong> ou arraste os PDFs · múltiplos arquivos
+                <strong style={{ color: 'var(--text)' }}>Clique</strong> ou arraste PDFs / planilha XLSX · múltiplos arquivos
               </div>
             </div>
-            <input ref={inputRef} type="file" accept=".pdf" multiple style={{ display: 'none' }}
+            <input ref={inputRef} type="file" accept=".pdf,.xlsx,.xls" multiple style={{ display: 'none' }}
               onChange={e => { if (e.target.files) adicionarArquivos(e.target.files) }} />
 
             {arquivos.length > 0 && (
@@ -318,7 +318,7 @@ export default function QuiverFaturasTransportePage() {
               color: !arquivos.length || enviando ? 'var(--text-3)' : '#fff',
               border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 500,
             }}>
-              {enviando ? '⏳ Enviando...' : arquivos.length ? `Cadastrar ${arquivos.length} fatura(s)` : 'Selecione os PDFs'}
+              {enviando ? '⏳ Enviando...' : arquivos.length ? `Cadastrar ${arquivos.length} arquivo(s)` : 'Selecione PDF ou XLSX'}
             </button>
 
             {erroEnvio && (
