@@ -17,7 +17,7 @@ export default function QuiverFaturasPage() {
   )
 
   function adicionarArquivos(files: FileList) {
-    const novos = Array.from(files).filter(f => f.name.endsWith('.pdf'))
+    const novos = Array.from(files).filter(f => /\.(pdf|xlsx|xls)$/i.test(f.name))
     setArquivos(prev => { const nomes = new Set(prev.map(f => f.name)); return [...prev, ...novos.filter(f => !nomes.has(f.name))] })
   }
 
@@ -55,15 +55,15 @@ export default function QuiverFaturasPage() {
       <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.2}}`}</style>
       <div style={{ maxWidth: 600, margin: '0 auto', padding: '2rem 1rem' }}>
         <h1 style={{ fontSize: 20, fontWeight: 500, marginBottom: 4 }}>Cadastro de Faturas</h1>
-        <p style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: '1.5rem' }}>Envie os PDFs. O sistema extrai e cadastra no Quiver PRO automaticamente.</p>
+        <p style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: '1.5rem' }}>Envie os PDFs (RCTR-C/RC-DC) ou a planilha XLSX (AKAD RC-V). O sistema extrai e cadastra no Quiver PRO automaticamente.</p>
         {!job && (
           <>
             <div onClick={() => inputRef.current?.click()} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); adicionarArquivos(e.dataTransfer.files) }}
               style={{ border: '1.5px dashed var(--border-strong)', borderRadius: 12, padding: '1.5rem', textAlign: 'center', cursor: 'pointer', background: 'var(--surface)', marginBottom: 12 }}>
               <div style={{ fontSize: 24, marginBottom: 4 }}>📑</div>
-              <div style={{ fontSize: 14, color: 'var(--text-2)' }}><strong style={{ color: 'var(--text)' }}>Clique</strong> ou arraste os PDFs · múltiplos arquivos</div>
+              <div style={{ fontSize: 14, color: 'var(--text-2)' }}><strong style={{ color: 'var(--text)' }}>Clique</strong> ou arraste PDFs / planilha XLSX · múltiplos arquivos</div>
             </div>
-            <input ref={inputRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={e => { if(e.target.files) adicionarArquivos(e.target.files) }} />
+            <input ref={inputRef} type="file" accept=".pdf,.xlsx,.xls" multiple style={{ display: 'none' }} onChange={e => { if(e.target.files) adicionarArquivos(e.target.files) }} />
             {arquivos.length > 0 && (
               <div style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
                 {arquivos.map((f, i) => (
@@ -76,7 +76,7 @@ export default function QuiverFaturasPage() {
               </div>
             )}
             <button onClick={enviar} disabled={!arquivos.length || enviando} style={{ width: '100%', padding: '11px', background: !arquivos.length || enviando ? 'var(--border)' : '#185FA5', color: !arquivos.length || enviando ? 'var(--text-3)' : '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 500 }}>
-              {enviando ? '⏳ Enviando...' : arquivos.length ? `Cadastrar ${arquivos.length} fatura(s)` : 'Selecione os PDFs'}
+              {enviando ? '⏳ Enviando...' : arquivos.length ? `Cadastrar ${arquivos.length} arquivo(s)` : 'Selecione PDF ou XLSX'}
             </button>
             {erroEnvio && <div style={{ marginTop: 10, padding: '10px 12px', background: '#FCEBEB', border: '0.5px solid #E24B4A', borderRadius: 8, fontSize: 13, color: '#791F1F' }}>❌ {erroEnvio}</div>}
           </>
