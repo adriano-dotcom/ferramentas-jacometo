@@ -134,9 +134,9 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
               // Transporte: "Movimento Fatura - Transportes" (value=36)
               window.setField(d2, 'Documento_SubTipo', '36');
             }
-            // Allianz/AKAD: endosso com 6 dígitos (padding zeros). Tokio/Unimed/FATURA MENSAL: EXATO como veio.
+            // Allianz/AKAD: endosso com 6 dígitos (padding zeros). Tokio/AXA/Unimed/FATURA MENSAL: EXATO como veio.
             const subUpper = subL.toUpperCase();
-            const endFmt = (segL.includes('tokio') || segL.includes('unimed') || subUpper === 'FATURA MENSAL') ? String(endosso) : String(endosso).padStart(6,'0');
+            const endFmt = (segL.includes('tokio') || segL.includes('axa') || segL.includes('unimed') || subUpper === 'FATURA MENSAL') ? String(endosso) : String(endosso).padStart(6,'0');
             // Quando SubTipo é alterado por TEXTO, há postback ASP.NET que pode resetar campos.
             // Aguardamos esse postback antes de preencher os demais campos, então re-verificamos TipoDocumento.
             const aposSubtipo = () => {
