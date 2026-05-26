@@ -121,12 +121,15 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
             if (!d2) { window.__quiverErro = 'SUBTIPO_NAO_CARREGOU'; return; }
             const segL = (seguradora || '').toLowerCase();
             const subL = (subtipoLabel || '').trim();
+            let subtipoPorTexto = false;
             if (subL) {
               // SubTipo informado explicitamente (ex: planilha AKAD RC-V → "FATURA MENSAL")
               window.setSelectByText(d2, 'Documento_SubTipo', subL);
+              subtipoPorTexto = true;
             } else if (segL.includes('unimed')) {
               // Unimed Vida em Grupo: subtipo "FATURA MENSAL"
               window.setSelectByText(d2, 'Documento_SubTipo', 'FATURA MENSAL');
+              subtipoPorTexto = true;
             } else {
               // Transporte: "Movimento Fatura - Transportes" (value=36)
               window.setField(d2, 'Documento_SubTipo', '36');
@@ -134,20 +137,41 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
             // Allianz/AKAD: endosso com 6 dígitos (padding zeros). Tokio/Unimed/FATURA MENSAL: EXATO como veio.
             const subUpper = subL.toUpperCase();
             const endFmt = (segL.includes('tokio') || segL.includes('unimed') || subUpper === 'FATURA MENSAL') ? String(endosso) : String(endosso).padStart(6,'0');
-            window.setField(d2, 'Documento_Endosso', endFmt);
-            window.setField(d2, 'Documento_DataEmissao', emissao);
-            window.setField(d2, 'Documento_InicioVigencia', inicio);
-            window.setField(d2, 'Documento_TerminoVigencia', fim);
-            window.setField(d2, 'Documento_PropostaCia', proposta);
-            const btg = d2.getElementById('BtGravar');
-            if (!btg) { window.__quiverErro = 'BTN_GRAVAR_NAO_ENCONTRADO'; return; }
-            btg.click();
-            setTimeout(() => {
-              const d2 = window.getDoc2(); if (!d2) return;
-              window.clickBtn(d2, 'SIM');
-              const errs = window.lerErros(d2);
-              if (errs && !window.__quiverErro) window.__quiverErro = 'GRAVAR1:' + errs;
-            }, 1000);
+            // Quando SubTipo é alterado por TEXTO, há postback ASP.NET que pode resetar campos.
+            // Aguardamos esse postback antes de preencher os demais campos, então re-verificamos TipoDocumento.
+            const aposSubtipo = () => {
+              const d2 = window.getDoc2();
+              if (!d2) { window.__quiverErro = 'IFRAME_POS_SUBTIPO_PERDEU'; return; }
+              // Re-aplica TipoDocumento se o postback tiver zerado
+              const tipoEl = d2.getElementById('Documento_TipoDocumento');
+              if (tipoEl && (!tipoEl.value || tipoEl.value === '' || tipoEl.value === '0')) {
+                window.setField(d2, 'Documento_TipoDocumento', '9');
+              }
+              // Re-aplica SubTipo se zerou
+              const subEl = d2.getElementById('Documento_SubTipo');
+              if (subEl && (!subEl.value || subEl.value === '' || subEl.value === '0') && subL) {
+                window.setSelectByText(d2, 'Documento_SubTipo', subL);
+              }
+              window.setField(d2, 'Documento_Endosso', endFmt);
+              window.setField(d2, 'Documento_DataEmissao', emissao);
+              window.setField(d2, 'Documento_InicioVigencia', inicio);
+              window.setField(d2, 'Documento_TerminoVigencia', fim);
+              window.setField(d2, 'Documento_PropostaCia', proposta);
+              const btg = d2.getElementById('BtGravar');
+              if (!btg) { window.__quiverErro = 'BTN_GRAVAR_NAO_ENCONTRADO'; return; }
+              btg.click();
+              // SIM no alerta de endosso duplicado (MSG097)
+              setTimeout(() => {
+                const d2 = window.getDoc2(); if (!d2) return;
+                window.clickBtn(d2, 'SIM');
+                const errs = window.lerErros(d2);
+                if (errs && !window.__quiverErro) window.__quiverErro = 'GRAVAR1:' + errs;
+              }, 1000);
+              // Polling: espera "Aguarde..." sumir, então abre Prêmios
+              setTimeout(() => esperarAguardeESomir(1), 3000);
+            };
+            // Postback do SubTipo por TEXTO requer espera adicional (~2s); por value (36) não há postback.
+            if (subtipoPorTexto) setTimeout(aposSubtipo, 2000); else aposSubtipo();
             // Polling: espera "Aguarde..." sumir, então abre Prêmios
             const esperarAguardeESomir = (tentativa) => {
               const d2 = window.getDoc2(); if (!d2) { if (tentativa < 30) setTimeout(() => esperarAguardeESomir(tentativa+1), 1000); return; }
@@ -183,7 +207,6 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
                 }, 2000);
               }, 2500);
             };
-            setTimeout(() => esperarAguardeESomir(1), 3000);
           }, 3500);
         }, 3000);
       };
@@ -276,6 +299,11 @@ AKAD:
 
 SOMPO / AXA / CHUBB:
 - Siga os campos conforme aparecem no documento.
+- AXA: o "Nomenclatura de Ramo e Produto" indica o ramo. Mapear:
+  • 0654 → ramo "54" (RCTR-C)
+  • 0655 → ramo "55" (RC-DC)
+  • 0659 → ramo "59" (RC-V — Responsabilidade Civil do Veículo)
+  • 0621 → ramo "21" (Transporte Nacional)
 
 UNIMED SEGUROS (Vida em Grupo / Acidentes Pessoais / Garantia Funeral — "Discriminação de Prêmios"):
 - seguradora: "Unimed Seguros".
@@ -288,7 +316,7 @@ UNIMED SEGUROS (Vida em Grupo / Acidentes Pessoais / Garantia Funeral — "Discr
 - ramo: deixe vazio (não é transporte).
 
 Formato de resposta:
-{"seguradora":"Tokio Marine|Sompo|AKAD|AXA|Chubb|Allianz|Unimed Seguros","apolice":"número completo (Unimed: Código do Grupo)","endosso":"EXATAMENTE como na fatura, SEM zeros à esquerda (ex: 5, não 005). EXCEÇÃO: AKAD mantém 6 dígitos com zeros (ex: 000009)","ramo":"54 ou 55 (vazio para Unimed)","segurado":"","cnpj":"","emissao":"DD/MM/YYYY","proposta_cia":"","inicio_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques; Unimed: Período de Vigência)","fim_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques; Unimed: Período de Vigência)","premio_liquido":"ex:1.234,56","vencimento":"DD/MM/YYYY"}` },
+{"seguradora":"Tokio Marine|Sompo|AKAD|AXA|Chubb|Allianz|Unimed Seguros","apolice":"número completo (Unimed: Código do Grupo)","endosso":"EXATAMENTE como na fatura, SEM zeros à esquerda (ex: 5, não 005). EXCEÇÃO: AKAD mantém 6 dígitos com zeros (ex: 000009)","ramo":"54 (RCTR-C), 55 (RC-DC), 59 (RC-V) ou 21 (Transporte Nacional) — vazio para Unimed","segurado":"","cnpj":"","emissao":"DD/MM/YYYY","proposta_cia":"","inicio_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques; Unimed: Período de Vigência)","fim_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques; Unimed: Período de Vigência)","premio_liquido":"ex:1.234,56","vencimento":"DD/MM/YYYY"}` },
         ],
       }],
     }),
@@ -449,14 +477,23 @@ async function cadastrarFatura(page, fatura, idx) {
     log.info(`  Unimed: apólice (Código do Grupo) ${fatura.apolice} → Quiver busca ${apoliceQuiver} | endosso → ${fatura.endosso}`)
   } else if (segLower.includes('axa')) {
     // AXA: formato 02852.2026.0043.RAMO.NNNNNNN
-    // Ramo 0654 (RCTR-C) → últimos 5 dígitos sem zeros
-    // Ramo 0655 (RC-DC)  → últimos 4 dígitos sem zeros
+    // Ramo 0654 (RCTR-C)             → últimos 5 dígitos sem zeros
+    // Ramo 0655 (RC-DC)              → últimos 4 dígitos sem zeros
+    // Ramo 0621 (Transporte Nacional)→ últimos 4 dígitos sem zeros
+    // Ramo 0659 (RC-V)               → últimos 3 dígitos sem zeros
     const ramoStr = (fatura.ramo || '').toUpperCase()
-    if (ramoStr.includes('DC') || ramoStr.includes('0655') || ramoStr === '55') {
-      apoliceQuiver = apoliceQuiver.replace(/\./g, '').slice(-4).replace(/^0+/, '')
+    const apSemPontos = apoliceQuiver.replace(/\./g, '')
+    if (ramoStr.includes('RC-V') || ramoStr.includes('RCV') || ramoStr.includes('0659') || ramoStr === '59') {
+      apoliceQuiver = apSemPontos.slice(-3).replace(/^0+/, '') || apSemPontos.slice(-3)
+      log.info(`  AXA RC-V: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver}`)
+    } else if (ramoStr.includes('DC') || ramoStr.includes('0655') || ramoStr === '55') {
+      apoliceQuiver = apSemPontos.slice(-4).replace(/^0+/, '') || apSemPontos.slice(-4)
       log.info(`  AXA RC-DC: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver}`)
+    } else if (ramoStr.includes('TRANSPORTE NACIONAL') || ramoStr.includes('0621') || ramoStr === '21') {
+      apoliceQuiver = apSemPontos.slice(-4).replace(/^0+/, '') || apSemPontos.slice(-4)
+      log.info(`  AXA Transporte Nacional: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver}`)
     } else {
-      apoliceQuiver = apoliceQuiver.replace(/\./g, '').slice(-5).replace(/^0+/, '')
+      apoliceQuiver = apSemPontos.slice(-5).replace(/^0+/, '') || apSemPontos.slice(-5)
       log.info(`  AXA RCTR-C: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver}`)
     }
   }
