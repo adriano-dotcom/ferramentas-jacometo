@@ -308,7 +308,7 @@ ALLIANZ:
 - A apólice completa também deve vir do rodapé da página 2.
 
 AKAD (Resp. Civil Desvio de Carga - RC-DC / Transporte):
-- apolice: use o "Número da Apólice Susep" COMPLETO (24 dígitos, ex: 027982025000106550020035). NÃO use o "Número da Apólice Akad". (O sistema usa os últimos 6 dígitos = a apólice no Quiver.)
+- apolice: use o "Número da Apólice Akad" COMPLETO (ex: 027982025010655002035). O sistema usa os últimos 6 dígitos = a apólice no Quiver (ex: 002035). NÃO use o "Número da Apólice Susep" — seus últimos 6 dígitos são DIFERENTES (ex: 020035) e dão "apólice não encontrada".
 - endosso: últimos 6 dígitos do "Número da Fatura Susep" MANTENDO zeros à esquerda (ex: "000009", NÃO "9"). Em AKAD o endosso é a sequência final após a apólice na "Número da Fatura Susep".
 - inicio_vigencia: a data do campo "Início de vigência às 24 horas de" (ex: 01/05/2026). O sistema converte para o MÊS INTEIRO (primeiro ao último dia).
 - fim_vigencia: IGNORE o campo "Término de vigência" — deixe vazio. O sistema calcula o último dia do mês do início de vigência.
@@ -498,8 +498,8 @@ async function cadastrarFatura(page, fatura, idx) {
     apoliceQuiver = apoliceQuiver.slice(-6)
     log.info(`  Tokio: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver}`)
   } else if (segLower.includes('akad')) {
-    // AKAD: últimos 6 dígitos da "Número da Apólice Susep" (mantém zeros)
-    // ex: 027982025000106550020035 → 002035
+    // AKAD: últimos 6 dígitos da "Número da Apólice Akad" (mantém zeros)
+    // ex: 027982025010655002035 → 002035 (NÃO usar a Susep, cujos últimos 6 = 020035)
     const apNum = String(apoliceQuiver).replace(/\D/g, '')
     if (apNum.length > 6) apoliceQuiver = apNum.slice(-6)
     // Endosso: últimos 6 dígitos com zeros (ex: 000009)
