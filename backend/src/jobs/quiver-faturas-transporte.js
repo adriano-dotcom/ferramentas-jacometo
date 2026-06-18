@@ -136,7 +136,7 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
             }
             // Allianz/AKAD: endosso com 6 dígitos (padding zeros). Tokio/AXA/Unimed/FATURA MENSAL: EXATO como veio.
             const subUpper = subL.toUpperCase();
-            const endFmt = (segL.includes('tokio') || segL.includes('axa') || segL.includes('unimed') || subUpper === 'FATURA MENSAL') ? String(endosso) : String(endosso).padStart(6,'0');
+            const endFmt = (segL.includes('tokio') || segL.includes('axa') || segL.includes('chubb') || segL.includes('unimed') || subUpper === 'FATURA MENSAL') ? String(endosso) : String(endosso).padStart(6,'0');
             // Quando SubTipo é alterado por TEXTO, há postback ASP.NET que pode resetar campos.
             // Aguardamos esse postback antes de preencher os demais campos, então re-verificamos TipoDocumento.
             const aposSubtipo = () => {
@@ -259,6 +259,20 @@ function normalizarPremio(v) {
   return s.replace(/\./g, '')
 }
 
+// Recebe "DD/MM/YYYY" e devolve {inicio, fim} = primeiro e último dia daquele mês.
+// Ex: "01/05/2026" → { inicio: "01/05/2026", fim: "31/05/2026" }
+// Usado na AKAD: a "data do endosso" (vigência) é o mês INTEIRO do "Início de vigência".
+function mesCompletoVigencia(dataStr) {
+  const m = String(dataStr || '').trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (!m) return null
+  const mes = Number(m[2]), ano = Number(m[3])
+  if (mes < 1 || mes > 12) return null
+  // new Date(ano, mes, 0) = dia 0 do mês seguinte (mês 1-based) = último dia deste mês
+  const ultimoDia = new Date(ano, mes, 0).getDate()
+  const mm = String(mes).padStart(2, '0')
+  return { inicio: `01/${mm}/${ano}`, fim: `${String(ultimoDia).padStart(2, '0')}/${mm}/${ano}` }
+}
+
 // ── Extração de PDF via Claude API ────────────────────────────────────────────
 
 async function extrairDadosPDF(pdfBase64, nomeArquivo) {
@@ -270,7 +284,7 @@ async function extrairDadosPDF(pdfBase64, nomeArquivo) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 1000,
       messages: [{
         role: 'user',
@@ -293,17 +307,33 @@ ALLIANZ:
 - Use o "Nº Fatura" do rodapé da página 2 como endosso — NÃO use o da página 1 pois pode ser diferente.
 - A apólice completa também deve vir do rodapé da página 2.
 
-AKAD:
-- apolice: use o "Número da Apólice Susep" COMPLETO (24 dígitos, ex: 027982025000106550001812). NÃO use o "Número da Apólice Akad".
+AKAD (Resp. Civil Desvio de Carga - RC-DC / Transporte):
+- apolice: use o "Número da Apólice Susep" COMPLETO (24 dígitos, ex: 027982025000106550020035). NÃO use o "Número da Apólice Akad". (O sistema usa os últimos 6 dígitos = a apólice no Quiver.)
 - endosso: últimos 6 dígitos do "Número da Fatura Susep" MANTENDO zeros à esquerda (ex: "000009", NÃO "9"). Em AKAD o endosso é a sequência final após a apólice na "Número da Fatura Susep".
+- inicio_vigencia: a data do campo "Início de vigência às 24 horas de" (ex: 01/05/2026). O sistema converte para o MÊS INTEIRO (primeiro ao último dia).
+- fim_vigencia: IGNORE o campo "Término de vigência" — deixe vazio. O sistema calcula o último dia do mês do início de vigência.
+- emissao: a "Data de Emissão" (ex: 15/06/2026).
+- vencimento: a data em "Vencimento(s)" (ex: "001 20/06/2026" → 20/06/2026).
+- premio_liquido: o "Prêmio Líquido R$" do "Demonstrativo de Prêmio" (ex: 650,00).
+- ramo: "55" (RC-DC).
 
-SOMPO / AXA / CHUBB:
+SOMPO / AXA:
 - Siga os campos conforme aparecem no documento.
 - AXA: o "Nomenclatura de Ramo e Produto" indica o ramo. Mapear:
   • 0654 → ramo "54" (RCTR-C)
   • 0655 → ramo "55" (RC-DC)
   • 0659 → ramo "59" (RC-V — Responsabilidade Civil do Veículo)
   • 0621 → ramo "21" (Transporte Nacional)
+
+CHUBB (todos os dados ficam na 2ª PÁGINA do PDF — IGNORE página 1):
+- seguradora: "Chubb".
+- apolice: o campo "Apólice" no cabeçalho da página 2, EXATAMENTE como aparece com pontos (ex: "23.54.0036010.31"). NÃO remova pontos — o sistema cuida disso.
+- endosso: o campo "Endosso" EXATO como no PDF, SEM zeros à esquerda (ex: "403915").
+- inicio_vigencia / fim_vigencia: da seção "Vigência — Das 24:00h do dia DD/MM/YYYY às 24:00h do dia DD/MM/YYYY". A primeira data é inicio_vigencia, a segunda é fim_vigencia.
+- emissao: a data no RODAPÉ "SAO PAULO, DD DE MÊS DE YYYY - HH:MMhs" — converta o mês por extenso (ex: "16 DE JUNHO DE 2026" → "16/06/2026").
+- premio_liquido: use "Prêmio Líquido Chubb" do "Demonstrativo do Prêmio" (ex: 800,00).
+- vencimento: se não houver data explícita, use a data de emissão.
+- ramo: do quadro "Ramos" — 0654 → "54" (RCTR-C), 0655 → "55" (RC-DC).
 
 UNIMED SEGUROS (Vida em Grupo / Acidentes Pessoais / Garantia Funeral — "Discriminação de Prêmios"):
 - seguradora: "Unimed Seguros".
@@ -315,8 +345,18 @@ UNIMED SEGUROS (Vida em Grupo / Acidentes Pessoais / Garantia Funeral — "Discr
 - emissao: use "Data de Emissão".
 - ramo: deixe vazio (não é transporte).
 
+ICATU (seguro de VIDA — cabeçalho "ICATU" + "Dados - Nº da fatura"):
+- seguradora: "Icatu".
+- apolice: use o campo "Nº DA APÓLICE / CONTRATO" SEM os pontos (ex: "93.759.742" → "93759742").
+- endosso: use o "Dados - Nº da fatura" EXATAMENTE como aparece, sem zeros à esquerda (ex: "20").
+- inicio_vigencia / fim_vigencia: use o "PERÍODO DE VIGÊNCIA/COMPETÊNCIA: De DD/MM/YYYY até DD/MM/YYYY" (ex: "De 01/05/2026 até 31/05/2026" → inicio 01/05/2026, fim 31/05/2026).
+- emissao: use "DATA DE EMISSÃO" (ex: 01/06/2026).
+- vencimento: use "VENCIMENTO" (ex: 20/06/2026).
+- premio_liquido: use "Prêmio Líquido Total" do "Resumo do Faturamento" (ex: 633,55). NÃO use o "Prêmio Total" nem o "Prêmio a Pagar".
+- ramo: deixe vazio (não é transporte).
+
 Formato de resposta:
-{"seguradora":"Tokio Marine|Sompo|AKAD|AXA|Chubb|Allianz|Unimed Seguros","apolice":"número completo (Unimed: Código do Grupo)","endosso":"EXATAMENTE como na fatura, SEM zeros à esquerda (ex: 5, não 005). EXCEÇÃO: AKAD mantém 6 dígitos com zeros (ex: 000009)","ramo":"54 (RCTR-C), 55 (RC-DC), 59 (RC-V) ou 21 (Transporte Nacional) — vazio para Unimed","segurado":"","cnpj":"","emissao":"DD/MM/YYYY","proposta_cia":"","inicio_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques; Unimed: Período de Vigência)","fim_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques; Unimed: Período de Vigência)","premio_liquido":"ex:1.234,56","vencimento":"DD/MM/YYYY"}` },
+{"seguradora":"Tokio Marine|Sompo|AKAD|AXA|Chubb|Allianz|Unimed Seguros|Icatu","apolice":"número completo (Unimed: Código do Grupo; Chubb: COM pontos ex 23.54.0036010.31; Icatu: Nº da Apólice/Contrato sem pontos ex 93759742)","endosso":"EXATAMENTE como na fatura, SEM zeros à esquerda (ex: 5, não 005). EXCEÇÃO: AKAD mantém 6 dígitos com zeros (ex: 000009)","ramo":"54 (RCTR-C), 55 (RC-DC), 59 (RC-V) ou 21 (Transporte Nacional) — vazio para Unimed","segurado":"","cnpj":"","emissao":"DD/MM/YYYY","proposta_cia":"","inicio_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques; Unimed: Período de Vigência; Chubb: 1ª data da Vigência da pág 2)","fim_vigencia":"DD/MM/YYYY (Tokio: do Resumo Embarques; Unimed: Período de Vigência; Chubb: 2ª data da Vigência da pág 2)","premio_liquido":"ex:1.234,56","vencimento":"DD/MM/YYYY"}` },
         ],
       }],
     }),
@@ -458,15 +498,28 @@ async function cadastrarFatura(page, fatura, idx) {
     apoliceQuiver = apoliceQuiver.slice(-6)
     log.info(`  Tokio: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver}`)
   } else if (segLower.includes('akad')) {
-    // AKAD: últimos 7 dígitos da "Número da Apólice Susep" (mantém zeros)
-    // ex: 027982025000106550001812 → 0001812
-    if (apoliceQuiver.length > 7) apoliceQuiver = apoliceQuiver.slice(-7)
+    // AKAD: últimos 6 dígitos da "Número da Apólice Susep" (mantém zeros)
+    // ex: 027982025000106550020035 → 002035
+    const apNum = String(apoliceQuiver).replace(/\D/g, '')
+    if (apNum.length > 6) apoliceQuiver = apNum.slice(-6)
     // Endosso: últimos 6 dígitos com zeros (ex: 000009)
     if (fatura.endosso) {
       const endNum = String(fatura.endosso).replace(/\D/g, '')
       fatura.endosso = endNum.length >= 6 ? endNum.slice(-6) : endNum.padStart(6, '0')
     }
-    log.info(`  AKAD: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver} | endosso → ${fatura.endosso}`)
+    // Data do endosso (vigência): primeiro e último dia do mês do "Início de vigência"
+    // ex: início 01/05/2026 → vigência 01/05/2026 a 31/05/2026
+    const vig = mesCompletoVigencia(fatura.inicio_vigencia)
+    if (vig) { fatura.inicio_vigencia = vig.inicio; fatura.fim_vigencia = vig.fim }
+    log.info(`  AKAD: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver} | endosso → ${fatura.endosso} | vigência → ${fatura.inicio_vigencia}→${fatura.fim_vigencia}`)
+  } else if (segLower.includes('icatu')) {
+    // Icatu (seguro de vida): apólice = campo "Nº DA APÓLICE / CONTRATO" SEM os pontos (ex: 93759742)
+    apoliceQuiver = String(apoliceQuiver).replace(/\D/g, '')
+    // Endosso = "Dados - Nº da fatura" EXATO, sem zeros à esquerda (ex: 20)
+    if (fatura.endosso) fatura.endosso = String(fatura.endosso).replace(/\D/g, '').replace(/^0+/, '') || fatura.endosso
+    // Sub-tipo no Quiver: FATURA MENSAL (vida em grupo) — também força endosso EXATO no startFatura
+    fatura.subtipoLabel = fatura.subtipoLabel || 'FATURA MENSAL'
+    log.info(`  Icatu: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver} | endosso → ${fatura.endosso} | subtipo FATURA MENSAL`)
   } else if (segLower.includes('unimed')) {
     // Unimed Seguros (Vida em Grupo): apólice no Quiver = Código do Grupo (ex: 82940)
     // Endosso = Número Fatura (ex: 2682556), sem zeros à esquerda.
@@ -496,6 +549,14 @@ async function cadastrarFatura(page, fatura, idx) {
       apoliceQuiver = apSemPontos.slice(-5).replace(/^0+/, '') || apSemPontos.slice(-5)
       log.info(`  AXA RCTR-C: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver}`)
     }
+  } else if (segLower.includes('chubb')) {
+    // Chubb: apólice formato AA.RR.NNNNNNN.SS (ex: 23.54.0036010.31)
+    // Quiver busca: 3 primeiros campos SEM pontos (ex: 23540036010), descarta o .SS final
+    const partes = String(apoliceQuiver).split('.')
+    if (partes.length >= 3) {
+      apoliceQuiver = partes.slice(0, 3).join('')
+    }
+    log.info(`  Chubb: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver} | endosso → ${fatura.endosso}`)
   }
 
   log.info(`[${idx + 1}] ${fatura.segurado} — ${apoliceQuiver} end ${fatura.endosso} | prêmio: "${fatura.premio_liquido}" | vig: ${fatura.inicio_vigencia}→${fatura.fim_vigencia} | venc: ${fatura.vencimento}`)
