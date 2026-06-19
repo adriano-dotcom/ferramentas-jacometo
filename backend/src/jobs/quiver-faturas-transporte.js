@@ -22,11 +22,15 @@ const SCREENSHOTS_DIR = path.resolve('./downloads/screenshots')
 // ── Store de jobs em memória ──────────────────────────────────────────────────
 
 const JOBS = new Map()
+// Arquivos recebidos via upload em múltiplos chunks (lotes grandes), aguardando o
+// chunk final p/ iniciar o processamento. Fora de JOBS p/ não vazar caminhos de
+// arquivo no status retornado ao frontend.
+const PENDENTES = new Map()
 
 function criarJob(total) {
   const id = crypto.randomUUID()
   JOBS.set(id, { id, status: 'extraindo', progresso: 0, total, faturas: [], resultados: [], erro: null, criadoEm: Date.now() })
-  for (const [k, v] of JOBS) { if (Date.now() - v.criadoEm > 7200000) JOBS.delete(k) }
+  for (const [k, v] of JOBS) { if (Date.now() - v.criadoEm > 7200000) { JOBS.delete(k); PENDENTES.delete(k) } }
   return id
 }
 
@@ -865,10 +869,32 @@ async function enviarResumo(resultados, jobId) {
 // ── Handler Express ───────────────────────────────────────────────────────────
 
 module.exports = async function routeQuiverFaturasTransporte(req, res) {
-  const arquivos = req.files || []
-  if (!arquivos.length) return res.status(400).json({ erro: 'Nenhum arquivo enviado.' })
+  // Upload pode chegar em VÁRIOS chunks (lotes grandes que estouram o limite ~100MB
+  // do Cloudflare por requisição). Acumulamos em PENDENTES e só processamos quando
+  // chega o chunk final. Sem 'jobId'/'final' = envio único (comportamento original,
+  // usado pelo drive-watcher e pela página de transporte).
+  const recebidos = req.files || []
+  const ehFinal   = req.body?.final !== 'false' // ausente ou 'true' => processar agora
+  let   jobId     = (req.body?.jobId || '').trim()
 
-  const jobId = criarJob(arquivos.length)
+  if (jobId) {
+    if (!JOBS.has(jobId)) return res.status(404).json({ erro: 'Job não encontrado (pode ter expirado). Reinicie o envio.' })
+    PENDENTES.set(jobId, (PENDENTES.get(jobId) || []).concat(recebidos))
+  } else {
+    if (!recebidos.length) return res.status(400).json({ erro: 'Nenhum arquivo enviado.' })
+    jobId = criarJob(recebidos.length)
+    PENDENTES.set(jobId, recebidos.slice())
+  }
+
+  const arquivos = PENDENTES.get(jobId) || []
+  atualizar(jobId, { total: arquivos.length, status: ehFinal ? 'extraindo' : 'recebendo' })
+
+  // Ainda há chunks por vir — confirma recebimento parcial e aguarda o resto.
+  if (!ehFinal) return res.json({ ok: true, jobId, recebidos: arquivos.length, aguardandoMais: true })
+
+  // Chunk final (ou envio único): processa TODOS os arquivos acumulados.
+  PENDENTES.delete(jobId)
+  if (!arquivos.length) return res.status(400).json({ erro: 'Nenhum arquivo enviado.' })
   const nPdf  = arquivos.filter(a => a.originalname.toLowerCase().endsWith('.pdf')).length
   const nXls  = arquivos.filter(a => /\.(xlsx|xls)$/i.test(a.originalname)).length
   log.info(`Job ${jobId} — ${arquivos.length} arquivo(s) (${nPdf} PDF, ${nXls} XLSX)`)
@@ -983,13 +1009,51 @@ module.exports = async function routeQuiverFaturasTransporte(req, res) {
     faturas.sort((a, b) => a.segurado < b.segurado ? -1 : a.segurado > b.segurado ? 1 : Number(a.ramo) - Number(b.ramo))
     atualizar(jobId, { faturas, status: 'cadastrando', total: faturas.length + (JOBS.get(jobId)?.resultados?.length || 0) })
 
-    // ── Cadastro Quiver ───────────────────────────────────────────────────────
-    const { browser, page } = await abrirBrowser()
+    // ── Cadastro Quiver (com retry de falhas transitórias + isolamento de crash) ──
+    // Em lotes grandes a sessão do Quiver degrada e aparecem falhas transitórias
+    // ("Erro ao gravar", timeouts do portal). Antes, cada falha era definitiva e um
+    // crash de página abortava TODO o lote. Agora reentamos falhas transitórias e,
+    // num crash duro, relançamos o browser sem perder o restante das faturas.
+    const RETRYABLE = new Set(['ERRO_GRAVAR', 'MSG069', 'IFRAME_TIMEOUT', 'TIMEOUT'])
+    const MAX_TENTATIVAS = 3 // 1 inicial + 2 retentativas (só p/ erros transitórios)
+
+    let { browser, page } = await abrirBrowser()
+
+    // Cadastra uma fatura tolerando falhas transitórias e crash de página/browser.
+    // NÃO reenta erros de dados (apólice não encontrada, endosso duplicado, vigência).
+    const cadastrarComRetry = async (fatura, i) => {
+      let ultimo = null
+      for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
+        try {
+          const r = await cadastrarFatura(page, fatura, i)
+          if (r.status === 'OK' || !RETRYABLE.has(r.tipo)) return r // sucesso ou falha definitiva
+          ultimo = r
+          if (tentativa < MAX_TENTATIVAS) {
+            log.warn(`Retry ${tentativa}/${MAX_TENTATIVAS - 1} [${fatura.apolice}] — ${r.label}`)
+            await page.waitForTimeout(2000)
+            try { await recuperarSessao(page) } catch {}
+          }
+        } catch (e) {
+          // Crash duro: página/browser pode ter morrido. Relança e segue o lote.
+          log.error(`Crash no cadastro [${fatura.apolice}] (tentativa ${tentativa}): ${e.message}`)
+          ultimo = { ...fatura, status: 'FALHA', erro: e.message, screenshotPath: null, ...classificarErro(e.message) }
+          if (tentativa < MAX_TENTATIVAS) {
+            try { await fecharBrowser(browser) } catch {}
+            try {
+              ;({ browser, page } = await abrirBrowser())
+              await loginQuiver(page)
+              log.ok('Browser relançado após crash — lote continua.')
+            } catch (e2) { log.error(`Falha ao relançar browser: ${e2.message}`) }
+          }
+        }
+      }
+      return ultimo
+    }
 
     try {
       await loginQuiver(page)
       for (let i = 0; i < faturas.length; i++) {
-        const resultado = await cadastrarFatura(page, faturas[i], i)
+        const resultado = await cadastrarComRetry(faturas[i], i)
         const curr = JOBS.get(jobId)
         atualizar(jobId, { progresso: i + 1, resultados: [...curr.resultados, resultado] })
       }
