@@ -240,6 +240,21 @@ function classificarErro(msg) {
   return { tipo: 'OUTRO', label: msg.substring(0, 100), orientacao: 'Cadastre manualmente ou tente reenviar.' }
 }
 
+// Distingue falha por INDISPONIBILIDADE do portal Quiver (timeout de navegação / sessão
+// morta / contexto destruído) de erro de DADO (apólice não encontrada, endosso duplicado,
+// vigência). Usada pelo circuit-breaker: só falha de PORTAL conta pra derrubar o lote —
+// erro de dado NÃO conta (é problema daquela fatura, não do portal).
+function ehFalhaPortalQuiver(r) {
+  if (!r || r.status === 'OK') return false
+  const m = `${r.tipo || ''} ${r.erro || ''} ${r.label || ''}`.toLowerCase()
+  return r.tipo === 'TIMEOUT'
+    || m.includes('timeout')
+    || m.includes('navigation')
+    || m.includes('execution context was destroyed')
+    || m.includes('net::')
+    || m.includes('page.goto')
+}
+
 // Normaliza prêmio para formato brasileiro "X.XXX,YY" (sempre com vírgula decimal)
 // Aceita:
 //   - número JS: 3295.56 → "3295,56"
@@ -1050,12 +1065,35 @@ module.exports = async function routeQuiverFaturasTransporte(req, res) {
       return ultimo
     }
 
+    // Circuit-breaker: se o portal Quiver cair no meio do lote, TODA fatura passa a
+    // falhar por timeout de navegação e o lote thrasha por horas (até 3 tentativas +
+    // relançar o browser por item). Após N falhas de PORTAL consecutivas, aborta o
+    // restante e marca as faturas como "Quiver indisponível" para reenvio. Falha de
+    // DADO (apólice não encontrada, endosso duplicado etc.) NÃO conta e zera o contador.
+    const PORTAL_DOWN_LIMIT = 3
+    let portalFailSeguidas = 0
+
     try {
       await loginQuiver(page)
       for (let i = 0; i < faturas.length; i++) {
         const resultado = await cadastrarComRetry(faturas[i], i)
         const curr = JOBS.get(jobId)
         atualizar(jobId, { progresso: i + 1, resultados: [...curr.resultados, resultado] })
+
+        portalFailSeguidas = ehFalhaPortalQuiver(resultado) ? portalFailSeguidas + 1 : 0
+        if (portalFailSeguidas >= PORTAL_DOWN_LIMIT) {
+          const restantes = faturas.slice(i + 1)
+          log.error(`Circuit-breaker: ${portalFailSeguidas} faturas seguidas falharam por indisponibilidade do Quiver. Abortando ${restantes.length} restante(s) — reenvie o lote mais tarde.`)
+          for (const f of restantes) {
+            const skip = { ...f, status: 'FALHA', tipo: 'PORTAL_INDISPONIVEL',
+              label: 'Quiver indisponível — não processado',
+              orientacao: 'Portal do Quiver fora do ar/lento no momento do lote. Reenvie este lote mais tarde.',
+              erro: 'Circuit-breaker: portal Quiver indisponível' }
+            const c = JOBS.get(jobId)
+            atualizar(jobId, { progresso: c.progresso + 1, resultados: [...c.resultados, skip] })
+          }
+          break
+        }
       }
     } catch (e) {
       log.error(`Erro crítico: ${e.message}`)
