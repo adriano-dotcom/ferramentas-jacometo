@@ -22,11 +22,15 @@ const SCREENSHOTS_DIR = path.resolve('./downloads/screenshots')
 // ── Store de jobs em memória ──────────────────────────────────────────────────
 
 const JOBS = new Map()
+// Arquivos recebidos via upload em múltiplos chunks (lotes grandes), aguardando o
+// chunk final p/ iniciar o processamento. Fora de JOBS p/ não vazar caminhos de
+// arquivo no status retornado ao frontend.
+const PENDENTES = new Map()
 
 function criarJob(total) {
   const id = crypto.randomUUID()
   JOBS.set(id, { id, status: 'extraindo', progresso: 0, total, faturas: [], resultados: [], erro: null, criadoEm: Date.now() })
-  for (const [k, v] of JOBS) { if (Date.now() - v.criadoEm > 7200000) JOBS.delete(k) }
+  for (const [k, v] of JOBS) { if (Date.now() - v.criadoEm > 7200000) { JOBS.delete(k); PENDENTES.delete(k) } }
   return id
 }
 
@@ -236,6 +240,21 @@ function classificarErro(msg) {
   return { tipo: 'OUTRO', label: msg.substring(0, 100), orientacao: 'Cadastre manualmente ou tente reenviar.' }
 }
 
+// Distingue falha por INDISPONIBILIDADE do portal Quiver (timeout de navegação / sessão
+// morta / contexto destruído) de erro de DADO (apólice não encontrada, endosso duplicado,
+// vigência). Usada pelo circuit-breaker: só falha de PORTAL conta pra derrubar o lote —
+// erro de dado NÃO conta (é problema daquela fatura, não do portal).
+function ehFalhaPortalQuiver(r) {
+  if (!r || r.status === 'OK') return false
+  const m = `${r.tipo || ''} ${r.erro || ''} ${r.label || ''}`.toLowerCase()
+  return r.tipo === 'TIMEOUT'
+    || m.includes('timeout')
+    || m.includes('navigation')
+    || m.includes('execution context was destroyed')
+    || m.includes('net::')
+    || m.includes('page.goto')
+}
+
 // Normaliza prêmio para formato brasileiro "X.XXX,YY" (sempre com vírgula decimal)
 // Aceita:
 //   - número JS: 3295.56 → "3295,56"
@@ -307,15 +326,15 @@ ALLIANZ:
 - Use o "Nº Fatura" do rodapé da página 2 como endosso — NÃO use o da página 1 pois pode ser diferente.
 - A apólice completa também deve vir do rodapé da página 2.
 
-AKAD (Resp. Civil Desvio de Carga - RC-DC / Transporte):
-- apolice: use o "Número da Apólice Susep" COMPLETO (24 dígitos, ex: 027982025000106550020035). NÃO use o "Número da Apólice Akad". (O sistema usa os últimos 6 dígitos = a apólice no Quiver.)
+AKAD (todos os ramos — RCTR-C 54, RC-DC 55, RC-V 59, Transporte 21):
+- apolice: SEMPRE use o "Número da Apólice Akad" COMPLETO (ex: 027982025010655002035), qualquer que seja o ramo. O sistema usa os ÚLTIMOS 6 DÍGITOS = a apólice no Quiver (ex: 002035). NUNCA use o "Número da Apólice Susep" — seus últimos 6 dígitos são DIFERENTES (ex: 020035) e dão "apólice não encontrada".
 - endosso: últimos 6 dígitos do "Número da Fatura Susep" MANTENDO zeros à esquerda (ex: "000009", NÃO "9"). Em AKAD o endosso é a sequência final após a apólice na "Número da Fatura Susep".
 - inicio_vigencia: a data do campo "Início de vigência às 24 horas de" (ex: 01/05/2026). O sistema converte para o MÊS INTEIRO (primeiro ao último dia).
 - fim_vigencia: IGNORE o campo "Término de vigência" — deixe vazio. O sistema calcula o último dia do mês do início de vigência.
 - emissao: a "Data de Emissão" (ex: 15/06/2026).
 - vencimento: a data em "Vencimento(s)" (ex: "001 20/06/2026" → 20/06/2026).
 - premio_liquido: o "Prêmio Líquido R$" do "Demonstrativo de Prêmio" (ex: 650,00).
-- ramo: "55" (RC-DC).
+- ramo: identifique pelo produto/documento — "54" (RCTR-C), "55" (RC-DC), "59" (RC-V) ou "21" (Transporte Nacional).
 
 SOMPO / AXA:
 - Siga os campos conforme aparecem no documento.
@@ -498,8 +517,8 @@ async function cadastrarFatura(page, fatura, idx) {
     apoliceQuiver = apoliceQuiver.slice(-6)
     log.info(`  Tokio: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver}`)
   } else if (segLower.includes('akad')) {
-    // AKAD: últimos 6 dígitos da "Número da Apólice Susep" (mantém zeros)
-    // ex: 027982025000106550020035 → 002035
+    // AKAD: últimos 6 dígitos da "Número da Apólice Akad" (mantém zeros)
+    // ex: 027982025010655002035 → 002035 (NÃO usar a Susep, cujos últimos 6 = 020035)
     const apNum = String(apoliceQuiver).replace(/\D/g, '')
     if (apNum.length > 6) apoliceQuiver = apNum.slice(-6)
     // Endosso: últimos 6 dígitos com zeros (ex: 000009)
@@ -865,10 +884,32 @@ async function enviarResumo(resultados, jobId) {
 // ── Handler Express ───────────────────────────────────────────────────────────
 
 module.exports = async function routeQuiverFaturasTransporte(req, res) {
-  const arquivos = req.files || []
-  if (!arquivos.length) return res.status(400).json({ erro: 'Nenhum arquivo enviado.' })
+  // Upload pode chegar em VÁRIOS chunks (lotes grandes que estouram o limite ~100MB
+  // do Cloudflare por requisição). Acumulamos em PENDENTES e só processamos quando
+  // chega o chunk final. Sem 'jobId'/'final' = envio único (comportamento original,
+  // usado pelo drive-watcher e pela página de transporte).
+  const recebidos = req.files || []
+  const ehFinal   = req.body?.final !== 'false' // ausente ou 'true' => processar agora
+  let   jobId     = (req.body?.jobId || '').trim()
 
-  const jobId = criarJob(arquivos.length)
+  if (jobId) {
+    if (!JOBS.has(jobId)) return res.status(404).json({ erro: 'Job não encontrado (pode ter expirado). Reinicie o envio.' })
+    PENDENTES.set(jobId, (PENDENTES.get(jobId) || []).concat(recebidos))
+  } else {
+    if (!recebidos.length) return res.status(400).json({ erro: 'Nenhum arquivo enviado.' })
+    jobId = criarJob(recebidos.length)
+    PENDENTES.set(jobId, recebidos.slice())
+  }
+
+  const arquivos = PENDENTES.get(jobId) || []
+  atualizar(jobId, { total: arquivos.length, status: ehFinal ? 'extraindo' : 'recebendo' })
+
+  // Ainda há chunks por vir — confirma recebimento parcial e aguarda o resto.
+  if (!ehFinal) return res.json({ ok: true, jobId, recebidos: arquivos.length, aguardandoMais: true })
+
+  // Chunk final (ou envio único): processa TODOS os arquivos acumulados.
+  PENDENTES.delete(jobId)
+  if (!arquivos.length) return res.status(400).json({ erro: 'Nenhum arquivo enviado.' })
   const nPdf  = arquivos.filter(a => a.originalname.toLowerCase().endsWith('.pdf')).length
   const nXls  = arquivos.filter(a => /\.(xlsx|xls)$/i.test(a.originalname)).length
   log.info(`Job ${jobId} — ${arquivos.length} arquivo(s) (${nPdf} PDF, ${nXls} XLSX)`)
@@ -983,15 +1024,76 @@ module.exports = async function routeQuiverFaturasTransporte(req, res) {
     faturas.sort((a, b) => a.segurado < b.segurado ? -1 : a.segurado > b.segurado ? 1 : Number(a.ramo) - Number(b.ramo))
     atualizar(jobId, { faturas, status: 'cadastrando', total: faturas.length + (JOBS.get(jobId)?.resultados?.length || 0) })
 
-    // ── Cadastro Quiver ───────────────────────────────────────────────────────
-    const { browser, page } = await abrirBrowser()
+    // ── Cadastro Quiver (com retry de falhas transitórias + isolamento de crash) ──
+    // Em lotes grandes a sessão do Quiver degrada e aparecem falhas transitórias
+    // ("Erro ao gravar", timeouts do portal). Antes, cada falha era definitiva e um
+    // crash de página abortava TODO o lote. Agora reentamos falhas transitórias e,
+    // num crash duro, relançamos o browser sem perder o restante das faturas.
+    const RETRYABLE = new Set(['ERRO_GRAVAR', 'MSG069', 'IFRAME_TIMEOUT', 'TIMEOUT'])
+    const MAX_TENTATIVAS = 3 // 1 inicial + 2 retentativas (só p/ erros transitórios)
+
+    let { browser, page } = await abrirBrowser()
+
+    // Cadastra uma fatura tolerando falhas transitórias e crash de página/browser.
+    // NÃO reenta erros de dados (apólice não encontrada, endosso duplicado, vigência).
+    const cadastrarComRetry = async (fatura, i) => {
+      let ultimo = null
+      for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
+        try {
+          const r = await cadastrarFatura(page, fatura, i)
+          if (r.status === 'OK' || !RETRYABLE.has(r.tipo)) return r // sucesso ou falha definitiva
+          ultimo = r
+          if (tentativa < MAX_TENTATIVAS) {
+            log.warn(`Retry ${tentativa}/${MAX_TENTATIVAS - 1} [${fatura.apolice}] — ${r.label}`)
+            await page.waitForTimeout(2000)
+            try { await recuperarSessao(page) } catch {}
+          }
+        } catch (e) {
+          // Crash duro: página/browser pode ter morrido. Relança e segue o lote.
+          log.error(`Crash no cadastro [${fatura.apolice}] (tentativa ${tentativa}): ${e.message}`)
+          ultimo = { ...fatura, status: 'FALHA', erro: e.message, screenshotPath: null, ...classificarErro(e.message) }
+          if (tentativa < MAX_TENTATIVAS) {
+            try { await fecharBrowser(browser) } catch {}
+            try {
+              ;({ browser, page } = await abrirBrowser())
+              await loginQuiver(page)
+              log.ok('Browser relançado após crash — lote continua.')
+            } catch (e2) { log.error(`Falha ao relançar browser: ${e2.message}`) }
+          }
+        }
+      }
+      return ultimo
+    }
+
+    // Circuit-breaker: se o portal Quiver cair no meio do lote, TODA fatura passa a
+    // falhar por timeout de navegação e o lote thrasha por horas (até 3 tentativas +
+    // relançar o browser por item). Após N falhas de PORTAL consecutivas, aborta o
+    // restante e marca as faturas como "Quiver indisponível" para reenvio. Falha de
+    // DADO (apólice não encontrada, endosso duplicado etc.) NÃO conta e zera o contador.
+    const PORTAL_DOWN_LIMIT = 3
+    let portalFailSeguidas = 0
 
     try {
       await loginQuiver(page)
       for (let i = 0; i < faturas.length; i++) {
-        const resultado = await cadastrarFatura(page, faturas[i], i)
+        const resultado = await cadastrarComRetry(faturas[i], i)
         const curr = JOBS.get(jobId)
         atualizar(jobId, { progresso: i + 1, resultados: [...curr.resultados, resultado] })
+
+        portalFailSeguidas = ehFalhaPortalQuiver(resultado) ? portalFailSeguidas + 1 : 0
+        if (portalFailSeguidas >= PORTAL_DOWN_LIMIT) {
+          const restantes = faturas.slice(i + 1)
+          log.error(`Circuit-breaker: ${portalFailSeguidas} faturas seguidas falharam por indisponibilidade do Quiver. Abortando ${restantes.length} restante(s) — reenvie o lote mais tarde.`)
+          for (const f of restantes) {
+            const skip = { ...f, status: 'FALHA', tipo: 'PORTAL_INDISPONIVEL',
+              label: 'Quiver indisponível — não processado',
+              orientacao: 'Portal do Quiver fora do ar/lento no momento do lote. Reenvie este lote mais tarde.',
+              erro: 'Circuit-breaker: portal Quiver indisponível' }
+            const c = JOBS.get(jobId)
+            atualizar(jobId, { progresso: c.progresso + 1, resultados: [...c.resultados, skip] })
+          }
+          break
+        }
       }
     } catch (e) {
       log.error(`Erro crítico: ${e.message}`)

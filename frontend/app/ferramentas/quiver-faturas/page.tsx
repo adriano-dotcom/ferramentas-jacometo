@@ -24,14 +24,33 @@ export default function QuiverFaturasPage() {
   async function enviar() {
     if (!arquivos.length) return
     setEnviando(true); setErroEnvio('')
-    const form = new FormData()
-    arquivos.forEach(f => form.append('arquivos', f))
     try {
-      const res  = await fetch('/api/rpa/quiver-faturas/cadastrar', { method: 'POST', body: form })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.erro || 'Erro no servidor')
+      // Envia em chunks de ~40MB por requisição (folga sob o limite ~100MB do
+      // Cloudflare). Todos os chunks referenciam o mesmo jobId; o backend só
+      // processa ao receber o chunk com final=true.
+      const CHUNK_BYTES = 40 * 1024 * 1024
+      const chunks: File[][] = []
+      let atual: File[] = [], acc = 0
+      for (const f of arquivos) {
+        if (atual.length && acc + f.size > CHUNK_BYTES) { chunks.push(atual); atual = []; acc = 0 }
+        atual.push(f); acc += f.size
+      }
+      if (atual.length) chunks.push(atual)
+
+      let jobId = ''
+      for (let c = 0; c < chunks.length; c++) {
+        const form = new FormData()
+        if (jobId) form.append('jobId', jobId)
+        form.append('final', String(c === chunks.length - 1))
+        chunks[c].forEach(f => form.append('arquivos', f))
+        const res  = await fetch('/api/rpa/quiver-faturas/cadastrar', { method: 'POST', body: form })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.erro || 'Erro no servidor')
+        if (data.jobId) jobId = data.jobId
+      }
+
       setArquivos([])
-      setJob({ id: data.jobId || 'qf-' + Date.now(), status: 'cadastrando', progresso: 0, total: arquivos.length, resultados: [], erro: null })
+      setJob({ id: jobId || 'qf-' + Date.now(), status: 'cadastrando', progresso: 0, total: arquivos.length, resultados: [], erro: null })
     } catch (e: any) {
       setErroEnvio(e.message)
     } finally {
