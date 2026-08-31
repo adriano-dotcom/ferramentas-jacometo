@@ -311,15 +311,15 @@ ALLIANZ:
 - Use o "Nº Fatura" do rodapé da página 2 como endosso — NÃO use o da página 1 pois pode ser diferente.
 - A apólice completa também deve vir do rodapé da página 2.
 
-AKAD (Resp. Civil Desvio de Carga - RC-DC / Transporte):
-- apolice: use o "Número da Apólice Akad" COMPLETO (ex: 027982025010655002035). O sistema usa os últimos 6 dígitos = a apólice no Quiver (ex: 002035). NÃO use o "Número da Apólice Susep" — seus últimos 6 dígitos são DIFERENTES (ex: 020035) e dão "apólice não encontrada".
+AKAD (todos os ramos — RCTR-C 54, RC-DC 55, RC-V 59, Transporte 21):
+- apolice: SEMPRE use o "Número da Apólice Akad" COMPLETO (ex: 027982025010655002035), qualquer que seja o ramo. O sistema usa os ÚLTIMOS 6 DÍGITOS = a apólice no Quiver (ex: 002035). NUNCA use o "Número da Apólice Susep" — seus últimos 6 dígitos são DIFERENTES (ex: 020035) e dão "apólice não encontrada".
 - endosso: últimos 6 dígitos do "Número da Fatura Susep" MANTENDO zeros à esquerda (ex: "000009", NÃO "9"). Em AKAD o endosso é a sequência final após a apólice na "Número da Fatura Susep".
 - inicio_vigencia: a data do campo "Início de vigência às 24 horas de" (ex: 01/05/2026). O sistema converte para o MÊS INTEIRO (primeiro ao último dia).
 - fim_vigencia: IGNORE o campo "Término de vigência" — deixe vazio. O sistema calcula o último dia do mês do início de vigência.
 - emissao: a "Data de Emissão" (ex: 15/06/2026).
 - vencimento: a data em "Vencimento(s)" (ex: "001 20/06/2026" → 20/06/2026).
 - premio_liquido: o "Prêmio Líquido R$" do "Demonstrativo de Prêmio" (ex: 650,00).
-- ramo: "55" (RC-DC).
+- ramo: identifique pelo produto/documento — "54" (RCTR-C), "55" (RC-DC), "59" (RC-V) ou "21" (Transporte Nacional).
 
 SOMPO / AXA:
 - Siga os campos conforme aparecem no documento.
