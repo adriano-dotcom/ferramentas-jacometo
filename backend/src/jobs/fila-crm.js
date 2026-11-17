@@ -27,7 +27,12 @@ const MAX_COMPROVANTE_BYTES = 2 * 1024 * 1024
 const TECNICOS = new Set(['ERRO_GRAVAR', 'MSG069', 'IFRAME_TIMEOUT', 'TIMEOUT'])
 // Tempo máximo de cada etapa. O Playwright não tem limite em page.evaluate: com o Quiver fora do ar a página fica muda e a chamada
 // nunca volta (17/11/2026: a fila ficou presa numa fatura por mais de 8 minutos). Passou do limite, o navegador é fechado.
-const LIMITE_LOGIN_MS = 90 * 1000
+const LIMITE_LOGIN_MS = 60 * 1000
+// O MINI-02 às vezes não resolve o endereço do Quiver por alguns segundos (ERR_NAME_NOT_RESOLVED, 17/11/2026). Antes de desistir de
+// entrar, o robô insiste: nada foi gravado ainda, então repetir é seguro e não gasta uma tentativa da fatura.
+const TENTATIVAS_LOGIN = 4
+const ESPERA_ENTRE_LOGINS_MS = 20 * 1000
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms))
 const LIMITE_CADASTRO_MS = 4 * 60 * 1000
 const LIMITE_FECHAR_MS = 20 * 1000
 class TempoEsgotado extends Error {}
@@ -118,13 +123,22 @@ async function processar(item) {
   let r
   try {
     let page
-    try {
-      ({ page } = await comLimite(abrirSessao(), LIMITE_LOGIN_MS))
-    } catch (e) {
-      // não chegou a entrar no Quiver: nada foi gravado, pode tentar de novo
-      await fecharSessao()
+    let erroLogin = null
+    for (let n = 1; n <= TENTATIVAS_LOGIN && !page; n++) {
+      try {
+        ({ page } = await comLimite(abrirSessao(), LIMITE_LOGIN_MS))
+      } catch (e) {
+        erroLogin = e
+        await fecharSessao()
+        log.warn(`[fila-crm] não entrou no Quiver (${n}/${TENTATIVAS_LOGIN}): ${String(e.message || e).split('\n')[0].slice(0, 160)}`)
+        if (n < TENTATIVAS_LOGIN) await dormir(ESPERA_ENTRE_LOGINS_MS)
+      }
+    }
+    if (!page) {
+      // não chegou a entrar no Quiver: nada foi gravado, pode tentar de novo mais tarde
       falhasPortal++
-      return { ok: false, tecnico: true, erro_tipo: 'TIMEOUT', erro: `Não foi possível entrar no Quiver: ${String(e.message || e).slice(0, 300)}` }
+      return { ok: false, tecnico: true, erro_tipo: 'TIMEOUT',
+        erro: `Não foi possível entrar no Quiver depois de ${TENTATIVAS_LOGIN} tentativas: ${String((erroLogin && erroLogin.message) || erroLogin).split('\n')[0].slice(0, 300)}` }
     }
     try {
       r = await comLimite(robo.cadastrarFatura(page, fatura, 0, { estrito: true, apoliceQuiver: limpar(item.apolice_quiver) || null }), LIMITE_CADASTRO_MS)
