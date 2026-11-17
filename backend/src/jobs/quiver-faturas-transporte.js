@@ -261,7 +261,8 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
               const textosOverlay = [document.body.innerText, d2.body ? d2.body.innerText : ''].join(' ').toLowerCase()
               const aguardando = textosOverlay.includes('aguarde') && textosOverlay.includes('processando')
               if (aguardando && tentativa < 30) { setTimeout(() => esperarAguardeESomir(tentativa+1), 1000); return; }
-              if (estrito) { window.premioEstrito(vencimento, premioLiq); return; }
+              // aba Prêmios com conferência em TODOS os caminhos (fila do CRM e upload pela tela) — ver window.premioEstrito
+              window.premioEstrito(vencimento, premioLiq); return;
               // OK — abre Prêmios
               for (const a of d2.querySelectorAll('a')) {
                 if (a.textContent.trim().includes('Prêmio')||a.textContent.trim().includes('Premio')) { a.click(); break; }
@@ -308,7 +309,7 @@ const ERROS = [
   { match: ['MSG097','ENDOSSO_DUPLICADO'],  tipo: 'ENDOSSO_DUPLICADO',     label: 'Endosso já cadastrado (MSG097)', orientacao: 'Esta fatura já existe no Quiver. Verifique se foi cadastrada anteriormente.' },
   { match: ['IFRAME_NAO_CARREGOU','BTN_GRAVAR_NAO_ENCONTRADO'], tipo: 'IFRAME_TIMEOUT', label: 'Quiver não carregou corretamente', orientacao: 'Portal lento. Reenvie o PDF.' },
   { match: ['VIGENCIA','VIGOR'],            tipo: 'VIGENCIA',              label: 'Datas fora da vigência',         orientacao: 'Verifique as datas de início e fim no PDF.' },
-  { match: ['ABA_PREMIOS_BLOQUEADA','CAMPOS_PREMIO_NAO_ENCONTRADOS','ABA_PREMIOS_NAO_ENCONTRADA'], tipo: 'CONFERIR_NO_QUIVER', label: 'Prêmio não foi gravado', orientacao: 'O Quiver não liberou a aba Prêmios. Conferir se o endosso ficou criado sem o prêmio antes de mandar de novo.' },
+  { match: ['ABA_PREMIOS_BLOQUEADA','CAMPOS_PREMIO_NAO_ENCONTRADOS','ABA_PREMIOS_NAO_ENCONTRADA','TIMEOUT_SEM_CONFIRMACAO','TIMEOUT_AGUARDE_QUIVER'], tipo: 'CONFERIR_NO_QUIVER', label: 'Prêmio não foi gravado', orientacao: 'O Quiver não liberou a aba Prêmios. Conferir se o endosso ficou criado sem o prêmio antes de mandar de novo.' },
   { match: ['GRAVAR1','GRAVAR2'],           tipo: 'ERRO_GRAVAR',           label: 'Erro ao gravar no Quiver',      orientacao: 'Cadastre manualmente e verifique o log.' },
   { match: ['TIMEOUT','NAVIGATION'],        tipo: 'TIMEOUT',               label: 'Timeout — portal demorou',      orientacao: 'Quiver estava lento. Reenvie o PDF.' },
 ]
@@ -682,7 +683,7 @@ async function cadastrarFatura(page, fatura, idx, opts = {}) {
     log.info('Aguardando JS executar fluxo completo (dados básicos + prêmio + gravar)...')
     let gravado = false
     let erroAntes = null
-    for (let i = 0; i < (opts.estrito ? 60 : 30); i++) {
+    for (let i = 0; i < 60; i++) {
       await page.waitForTimeout(2000)
       gravado = await page.evaluate(() => window.__premioGravado === true)
       erroAntes = await page.evaluate(() => window.__quiverErro || null)
@@ -936,7 +937,7 @@ async function cadastrarFatura(page, fatura, idx, opts = {}) {
       return { ...fatura, status: 'FALHA', erro: erroJs, screenshotPath: ss, ...classif }
     }
 
-    if (opts.estrito && !gravado) {
+    if (!gravado) {
       // Sem o sinal de que o prêmio foi gravado não dá para afirmar que cadastrou.
       const ss = await screenshot(page, `timeout_${fatura.apolice}_end${fatura.endosso}_${Date.now()}.png`)
       await recuperarSessao(page)
