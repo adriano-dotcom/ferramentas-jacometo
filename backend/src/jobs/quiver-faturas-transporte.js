@@ -87,6 +87,73 @@ window.lerErros = (doc) => {
   const sels = '.msg-erro,.alert-danger,.erro,span[style*="red"],[class*="error"],[class*="Error"],[id*="Error"]';
   return Array.from(doc.querySelectorAll(sels)).map(e => e.textContent.trim()).filter(Boolean).join(' | ');
 };
+// ── Fila do CRM (modo estrito): aba Prêmios com conferência ───────────────────────────────────────
+// Em 17/11/2026, 4 de 8 faturas voltaram "OK" sem terem sido gravadas: a aba Prêmios foi aberta antes de o 1º Gravar terminar, o
+// Quiver respondeu "É necessário salvar os dados principais antes de abrir a aba de Prêmios", e o fluxo clicou OK no alerta e seguiu.
+// Aqui cada etapa só avança depois de o "Aguarde... Processando" sumir, o alerta é reconhecido (fecha e tenta de novo, até 5 vezes)
+// e qualquer coisa fora do esperado vira erro — nunca sucesso.
+window.__textoTela = () => {
+  const d2 = window.getDoc2();
+  return [document.body ? document.body.innerText : '', d2 && d2.body ? d2.body.innerText : ''].join(' ').toLowerCase();
+};
+window.__aguardando = () => { const t = window.__textoTela(); return t.includes('aguarde') && t.includes('processando'); };
+window.__alertaSalvar = () => { const t = window.__textoTela(); return t.includes('necessário salvar') || t.includes('necessario salvar'); };
+window.__fecharAlerta = () => { const d2 = window.getDoc2(); return (d2 && window.clickBtn(d2, 'OK')) || window.clickBtn(document, 'OK'); };
+window.premioEstrito = (vencimento, premioLiq) => {
+  const falhar = (m) => { if (!window.__quiverErro) window.__quiverErro = m; };
+  // espera o "Aguarde" sumir e a tela ficar livre por 2 leituras seguidas (até maxSeg segundos); então chama fn
+  const quandoLivre = (maxSeg, fn, livres) => {
+    if (window.__quiverErro) return;
+    livres = livres || 0;
+    if (window.__aguardando()) {
+      if (maxSeg <= 0) return falhar('TIMEOUT_AGUARDE_QUIVER');
+      return setTimeout(() => quandoLivre(maxSeg - 1, fn, 0), 1000);
+    }
+    if (livres < 2) return setTimeout(() => quandoLivre(maxSeg - 1, fn, livres + 1), 1000);
+    fn();
+  };
+  const preencher = () => {
+    const d2 = window.getDoc2(); if (!d2) return falhar('IFRAME_NAO_CARREGOU');
+    const okV = window.setField(d2, 'Documento_DataVencPrimeira', vencimento);
+    const okP = window.setField(d2, 'Documento_PremioLiqDesc', premioLiq);
+    if (!okV || !okP) return falhar('CAMPOS_PREMIO_NAO_ENCONTRADOS');
+    setTimeout(() => {
+      const d2 = window.getDoc2(); if (!d2) return falhar('IFRAME_NAO_CARREGOU');
+      const btg2 = d2.getElementById('BtGravar');
+      if (!btg2) return falhar('BTN_GRAVAR_NAO_ENCONTRADO');
+      btg2.click();
+      setTimeout(() => quandoLivre(60, () => {
+        if (window.__alertaSalvar()) return falhar('ABA_PREMIOS_BLOQUEADA_GRAVAR_PRIMEIRO');
+        const d2 = window.getDoc2(); if (!d2) return falhar('IFRAME_NAO_CARREGOU');
+        window.clickBtn(d2, 'OK');   // aviso de comissão (MSG1381/1382)
+        const errs = window.lerErros(d2);
+        if (errs) return falhar('GRAVAR2:' + errs);
+        window.__premioGravado = true;
+      }), 2500);
+    }, 2000);
+  };
+  const abrir = (tentativa) => {
+    quandoLivre(60, () => {
+      const d2 = window.getDoc2(); if (!d2) return falhar('IFRAME_NAO_CARREGOU');
+      let clicou = false;
+      for (const a of d2.querySelectorAll('a')) {
+        const t = a.textContent.trim();
+        if (t.includes('Prêmio') || t.includes('Premio')) { a.click(); clicou = true; break; }
+      }
+      if (!clicou) return falhar('ABA_PREMIOS_NAO_ENCONTRADA');
+      setTimeout(() => {
+        if (window.__alertaSalvar()) {
+          // os dados principais ainda não estavam salvos: fecha o alerta, espera e tenta abrir de novo
+          window.__fecharAlerta();
+          if (tentativa >= 5) return falhar('ABA_PREMIOS_BLOQUEADA_GRAVAR_PRIMEIRO');
+          return setTimeout(() => abrir(tentativa + 1), 4000);
+        }
+        preencher();
+      }, 2500);
+    });
+  };
+  abrir(1);
+};
 window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimento, premioLiq, seguradora, subtipoLabel, estrito) => {
   for (const a of document.querySelectorAll('a')) {
     if (a.textContent.trim() === 'Operacional') { a.click(); break; }
@@ -194,6 +261,7 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
               const textosOverlay = [document.body.innerText, d2.body ? d2.body.innerText : ''].join(' ').toLowerCase()
               const aguardando = textosOverlay.includes('aguarde') && textosOverlay.includes('processando')
               if (aguardando && tentativa < 30) { setTimeout(() => esperarAguardeESomir(tentativa+1), 1000); return; }
+              if (estrito) { window.premioEstrito(vencimento, premioLiq); return; }
               // OK — abre Prêmios
               for (const a of d2.querySelectorAll('a')) {
                 if (a.textContent.trim().includes('Prêmio')||a.textContent.trim().includes('Premio')) { a.click(); break; }
@@ -240,6 +308,7 @@ const ERROS = [
   { match: ['MSG097','ENDOSSO_DUPLICADO'],  tipo: 'ENDOSSO_DUPLICADO',     label: 'Endosso já cadastrado (MSG097)', orientacao: 'Esta fatura já existe no Quiver. Verifique se foi cadastrada anteriormente.' },
   { match: ['IFRAME_NAO_CARREGOU','BTN_GRAVAR_NAO_ENCONTRADO'], tipo: 'IFRAME_TIMEOUT', label: 'Quiver não carregou corretamente', orientacao: 'Portal lento. Reenvie o PDF.' },
   { match: ['VIGENCIA','VIGOR'],            tipo: 'VIGENCIA',              label: 'Datas fora da vigência',         orientacao: 'Verifique as datas de início e fim no PDF.' },
+  { match: ['ABA_PREMIOS_BLOQUEADA','CAMPOS_PREMIO_NAO_ENCONTRADOS','ABA_PREMIOS_NAO_ENCONTRADA'], tipo: 'CONFERIR_NO_QUIVER', label: 'Prêmio não foi gravado', orientacao: 'O Quiver não liberou a aba Prêmios. Conferir se o endosso ficou criado sem o prêmio antes de mandar de novo.' },
   { match: ['GRAVAR1','GRAVAR2'],           tipo: 'ERRO_GRAVAR',           label: 'Erro ao gravar no Quiver',      orientacao: 'Cadastre manualmente e verifique o log.' },
   { match: ['TIMEOUT','NAVIGATION'],        tipo: 'TIMEOUT',               label: 'Timeout — portal demorou',      orientacao: 'Quiver estava lento. Reenvie o PDF.' },
 ]
@@ -613,7 +682,7 @@ async function cadastrarFatura(page, fatura, idx, opts = {}) {
     log.info('Aguardando JS executar fluxo completo (dados básicos + prêmio + gravar)...')
     let gravado = false
     let erroAntes = null
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < (opts.estrito ? 60 : 30); i++) {
       await page.waitForTimeout(2000)
       gravado = await page.evaluate(() => window.__premioGravado === true)
       erroAntes = await page.evaluate(() => window.__quiverErro || null)
