@@ -29,14 +29,14 @@ const PENDENTES = new Map()
 
 function criarJob(total) {
   const id = crypto.randomUUID()
-  JOBS.set(id, { id, status: 'extraindo', progresso: 0, total, faturas: [], resultados: [], erro: null, criadoEm: Date.now() })
+  JOBS.set(id, { id, status: 'extraindo', progresso: 0, total, faturas: [], resultados: [], erro: null, criadoEm: Date.now(), atualizadoEm: Date.now() })
   for (const [k, v] of JOBS) { if (Date.now() - v.criadoEm > 7200000) { JOBS.delete(k); PENDENTES.delete(k) } }
   return id
 }
 
 function atualizar(id, dados) {
   const job = JOBS.get(id)
-  if (job) JOBS.set(id, { ...job, ...dados })
+  if (job) JOBS.set(id, { ...job, ...dados, atualizadoEm: Date.now() })
 }
 
 function getJobStatus(req, res) {
@@ -1042,7 +1042,7 @@ module.exports = async function routeQuiverFaturasTransporte(req, res) {
 
     if (!faturas.length) {
       atualizar(jobId, { status: 'concluido' })
-      await db.jobConcluido(jobId, 'quiver_transporte', { resultados, csvPath: csvPath || null }, _inicio)
+      await db.jobConcluido(jobId, 'quiver_transporte', { resultados: [], csvPath: null }, _inicio)
       await email.enviar({ assunto: '❌ Faturas Transporte — Falha extração', corpo: 'Nenhum dado extraído dos PDFs enviados.' })
       return
     }
@@ -1140,5 +1140,10 @@ module.exports.getJobStatus = getJobStatus
 module.exports.cadastrarFatura = cadastrarFatura
 module.exports.loginQuiver = loginQuiver
 module.exports.ehFalhaPortalQuiver = ehFalhaPortalQuiver
-/** Há lote de upload em andamento? A fila espera: os dois usam o mesmo usuário do Quiver. */
-module.exports.temJobAtivo = () => Array.from(JOBS.values()).some(j => ['recebendo', 'extraindo', 'cadastrando'].includes(j.status))
+/**
+ * Há lote de upload em andamento? A fila espera: os dois usam o mesmo usuário do Quiver.
+ * Lote que não se mexe há 15 min é considerado preso e deixa de segurar a fila (17/11/2026: um upload abandonado travou a fila).
+ */
+const LOTE_PRESO_MS = 15 * 60 * 1000
+module.exports.temJobAtivo = () => Array.from(JOBS.values()).some(j =>
+  ['recebendo', 'extraindo', 'cadastrando'].includes(j.status) && Date.now() - (j.atualizadoEm || j.criadoEm) < LOTE_PRESO_MS)
