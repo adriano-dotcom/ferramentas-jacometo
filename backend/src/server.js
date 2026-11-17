@@ -42,6 +42,9 @@ app.post('/api/config/testar', routeTestConfig)
 app.post('/api/quiver-faturas/cadastrar',     upload.array('arquivos'), routeQuiverFaturas)
 app.get ('/api/quiver-faturas/status/:jobId',                           routeQuiverFaturas.getJobStatus)
 
+// ── Fila do CRM (módulo Faturamento) — só liga se CRM_FILA_URL e CRM_FILA_TOKEN estiverem no .env ──
+require('./jobs/fila-crm').iniciar()
+
 app.listen(PORT, () => {
   log.ok(`Backend RPA Jacometo — porta ${PORT}`)
   log.ok(`Playwright headless: ${process.env.HEADLESS !== 'false'}`)

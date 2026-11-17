@@ -87,7 +87,7 @@ window.lerErros = (doc) => {
   const sels = '.msg-erro,.alert-danger,.erro,span[style*="red"],[class*="error"],[class*="Error"],[id*="Error"]';
   return Array.from(doc.querySelectorAll(sels)).map(e => e.textContent.trim()).filter(Boolean).join(' | ');
 };
-window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimento, premioLiq, seguradora, subtipoLabel) => {
+window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimento, premioLiq, seguradora, subtipoLabel, estrito) => {
   for (const a of document.querySelectorAll('a')) {
     if (a.textContent.trim() === 'Operacional') { a.click(); break; }
   }
@@ -167,7 +167,17 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
               // SIM no alerta de endosso duplicado (MSG097)
               setTimeout(() => {
                 const d2 = window.getDoc2(); if (!d2) return;
-                window.clickBtn(d2, 'SIM');
+                if (estrito) {
+                  // Fila do CRM: endosso que já existe NÃO é regravado. Qualquer pergunta "SIM/NÃO" para aqui e vira resultado.
+                  const txt = ((d2.body && d2.body.innerText) || '') + ' ' + (document.body.innerText || '');
+                  const temSim = Array.from(d2.querySelectorAll('button, input[type="button"], a'))
+                    .some(b => b.textContent.trim().toUpperCase() === 'SIM' || (b.value || '').trim().toUpperCase() === 'SIM');
+                  const duplicado = /MSG097/i.test(txt) || (temSim && /(j[áa]\\s+(existe|cadastrad|foi\\s+cadastrad)|duplicad)/i.test(txt));
+                  if (duplicado) { window.__quiverErro = 'ENDOSSO_DUPLICADO'; window.clickBtn(d2, 'NÃO') || window.clickBtn(d2, 'NAO'); return; }
+                  if (temSim) { window.__quiverErro = 'CONFIRMACAO_INESPERADA:' + txt.replace(/\\s+/g, ' ').slice(0, 160); return; }
+                } else {
+                  window.clickBtn(d2, 'SIM');
+                }
                 const errs = window.lerErros(d2);
                 if (errs && !window.__quiverErro) window.__quiverErro = 'GRAVAR1:' + errs;
               }, 1000);
@@ -178,6 +188,7 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
             if (subtipoPorTexto) setTimeout(aposSubtipo, 2000); else aposSubtipo();
             // Polling: espera "Aguarde..." sumir, então abre Prêmios
             const esperarAguardeESomir = (tentativa) => {
+              if (estrito && window.__quiverErro) return;
               const d2 = window.getDoc2(); if (!d2) { if (tentativa < 30) setTimeout(() => esperarAguardeESomir(tentativa+1), 1000); return; }
               // Procura overlay/modal "Aguarde" no doc principal e no doc2
               const textosOverlay = [document.body.innerText, d2.body ? d2.body.innerText : ''].join(' ').toLowerCase()
@@ -199,7 +210,9 @@ window.startFatura = (apolice, endosso, emissao, inicio, fim, proposta, vencimen
                 window.setField(d2, 'Documento_PremioLiqDesc', premioLiq);
                 setTimeout(() => {
                   const d2 = window.getDoc2(); if (!d2) return;
+                  if (estrito && window.__quiverErro) return;
                   const btg2 = d2.getElementById('BtGravar');
+                  if (estrito && !btg2) { window.__quiverErro = 'BTN_GRAVAR_NAO_ENCONTRADO'; return; }
                   if (btg2) btg2.click();
                   setTimeout(() => {
                     const d2 = window.getDoc2(); if (!d2) return;
@@ -503,7 +516,10 @@ async function screenshot(page, nome) {
   } catch { return null }
 }
 
-async function cadastrarFatura(page, fatura, idx) {
+// opts (usadas pela fila do CRM — o upload pela tela não passa nenhuma e continua igual):
+//   estrito       → não confirma endosso duplicado, timeout sem confirmação é FALHA, e o sucesso devolve um print como comprovante
+//   apoliceQuiver → número da apólice como está no Quiver; se vier, é ele que vai na busca (sem o recorte por seguradora)
+async function cadastrarFatura(page, fatura, idx, opts = {}) {
   // Cada seguradora tem formato diferente de busca no Quiver
   let apoliceQuiver = fatura.apolice || ''
   const segLower = (fatura.seguradora || '').toLowerCase()
@@ -578,6 +594,7 @@ async function cadastrarFatura(page, fatura, idx) {
     log.info(`  Chubb: apólice ${fatura.apolice} → Quiver busca ${apoliceQuiver} | endosso → ${fatura.endosso}`)
   }
 
+  if (opts.apoliceQuiver) apoliceQuiver = String(opts.apoliceQuiver)
   log.info(`[${idx + 1}] ${fatura.segurado} — ${apoliceQuiver} end ${fatura.endosso} | prêmio: "${fatura.premio_liquido}" | vig: ${fatura.inicio_vigencia}→${fatura.fim_vigencia} | venc: ${fatura.vencimento}`)
   await page.evaluate(() => { window.__quiverErro = null })
 
@@ -589,7 +606,7 @@ async function cadastrarFatura(page, fatura, idx) {
       '${apoliceQuiver}','${fatura.endosso}','${fatura.emissao}',
       '${fatura.inicio_vigencia}','${fatura.fim_vigencia}',
       '${fatura.proposta_cia || ''}','${fatura.vencimento}','${fatura.premio_liquido}',
-      '${fatura.seguradora || ''}','${fatura.subtipoLabel || ''}'
+      '${fatura.seguradora || ''}','${fatura.subtipoLabel || ''}',${opts.estrito ? 'true' : 'false'}
     )`)
 
     // Aguarda o JS executar todo o fluxo (dados básicos + Prêmios + GRAVAR)
@@ -850,9 +867,18 @@ async function cadastrarFatura(page, fatura, idx) {
       return { ...fatura, status: 'FALHA', erro: erroJs, screenshotPath: ss, ...classif }
     }
 
+    if (opts.estrito && !gravado) {
+      // Sem o sinal de que o prêmio foi gravado não dá para afirmar que cadastrou.
+      const ss = await screenshot(page, `timeout_${fatura.apolice}_end${fatura.endosso}_${Date.now()}.png`)
+      await recuperarSessao(page)
+      log.warn(`FALHA [${fatura.apolice}]: sem confirmação de gravação em 60s`)
+      return { ...fatura, status: 'FALHA', erro: 'TIMEOUT_SEM_CONFIRMACAO', screenshotPath: ss, ...classificarErro('TIMEOUT_SEM_CONFIRMACAO') }
+    }
+    const comprovante = opts.estrito ? await screenshot(page, `ok_${fatura.apolice}_end${fatura.endosso}_${Date.now()}.png`) : null
+
     await recuperarSessao(page)
     log.ok(`OK [${fatura.apolice}] ${fatura.segurado}`)
-    return { ...fatura, status: 'OK', erro: null, tipo: null, label: null, orientacao: null, screenshotPath: null }
+    return { ...fatura, status: 'OK', erro: null, tipo: null, label: null, orientacao: null, screenshotPath: comprovante }
 
   } catch (e) {
     const ss = await screenshot(page, `erro_${fatura.apolice}_${Date.now()}.png`)
@@ -1110,3 +1136,9 @@ module.exports = async function routeQuiverFaturasTransporte(req, res) {
   })
 }
 module.exports.getJobStatus = getJobStatus
+// Usados pela fila do CRM (jobs/fila-crm.js)
+module.exports.cadastrarFatura = cadastrarFatura
+module.exports.loginQuiver = loginQuiver
+module.exports.ehFalhaPortalQuiver = ehFalhaPortalQuiver
+/** Há lote de upload em andamento? A fila espera: os dois usam o mesmo usuário do Quiver. */
+module.exports.temJobAtivo = () => Array.from(JOBS.values()).some(j => ['recebendo', 'extraindo', 'cadastrando'].includes(j.status))
