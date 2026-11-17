@@ -25,6 +25,17 @@ const MAX_FALHAS_PORTAL = 3               // seguidas: o Quiver está fora, a fi
 const DESCANSO_PORTAL_MS = 15 * 60 * 1000
 const MAX_COMPROVANTE_BYTES = 2 * 1024 * 1024
 const TECNICOS = new Set(['ERRO_GRAVAR', 'MSG069', 'IFRAME_TIMEOUT', 'TIMEOUT'])
+// Tempo máximo de cada etapa. O Playwright não tem limite em page.evaluate: com o Quiver fora do ar a página fica muda e a chamada
+// nunca volta (17/11/2026: a fila ficou presa numa fatura por mais de 8 minutos). Passou do limite, o navegador é fechado.
+const LIMITE_LOGIN_MS = 90 * 1000
+const LIMITE_CADASTRO_MS = 4 * 60 * 1000
+const LIMITE_FECHAR_MS = 20 * 1000
+class TempoEsgotado extends Error {}
+function comLimite(promessa, ms) {
+  let t
+  return Promise.race([promessa, new Promise((_, rej) => { t = setTimeout(() => rej(new TempoEsgotado(`passou de ${Math.round(ms / 1000)}s`)), ms) })])
+    .finally(() => clearTimeout(t))
+}
 // Vida em grupo: sub-tipo do Quiver conhecido só para estas seguradoras (o robô já trata as duas). Para as demais o CRM precisa mandar
 // "subtipo_label"; sem isso a fatura volta como exceção, em vez de ser gravada com o sub-tipo de transporte.
 const VIDA_CONHECIDA = ['unimed', 'icatu']
@@ -58,7 +69,7 @@ async function fecharSessao() {
   if (!sessao) return
   const b = sessao.browser
   sessao = null
-  await fecharBrowser(b)
+  await comLimite(fecharBrowser(b), LIMITE_FECHAR_MS).catch((e) => log.warn(`[fila-crm] navegador não fechou direito: ${e.message}`))
 }
 
 /** Fatura da fila → objeto que o robô entende (mesmo formato do upload). */
@@ -106,8 +117,25 @@ async function processar(item) {
 
   let r
   try {
-    const { page } = await abrirSessao()
-    r = await robo.cadastrarFatura(page, fatura, 0, { estrito: true, apoliceQuiver: limpar(item.apolice_quiver) || null })
+    let page
+    try {
+      ({ page } = await comLimite(abrirSessao(), LIMITE_LOGIN_MS))
+    } catch (e) {
+      // não chegou a entrar no Quiver: nada foi gravado, pode tentar de novo
+      await fecharSessao()
+      falhasPortal++
+      return { ok: false, tecnico: true, erro_tipo: 'TIMEOUT', erro: `Não foi possível entrar no Quiver: ${String(e.message || e).slice(0, 300)}` }
+    }
+    try {
+      r = await comLimite(robo.cadastrarFatura(page, fatura, 0, { estrito: true, apoliceQuiver: limpar(item.apolice_quiver) || null }), LIMITE_CADASTRO_MS)
+    } catch (e) {
+      if (!(e instanceof TempoEsgotado)) throw e
+      // travou no meio do cadastro: não dá para saber se gravou. Não tenta de novo sozinho — alguém confere no Quiver.
+      await fecharSessao()
+      falhasPortal++
+      return { ok: false, tecnico: false, erro_tipo: 'CONFERIR_NO_QUIVER',
+        erro: `O robô travou durante o cadastro (${e.message}). Conferir no Quiver se o endosso foi gravado antes de mandar de novo.` }
+    }
   } catch (e) {
     // navegador ou sessão morreram: fecha tudo; a próxima tentativa abre de novo
     await fecharSessao()
