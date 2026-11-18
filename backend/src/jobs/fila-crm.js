@@ -158,6 +158,8 @@ async function processar(item) {
   }
 
   const comprovante_base64 = lerComprovante(r.screenshotPath)
+  // o cadastro terminou (com ou sem sucesso) mas o Quiver não voltou ao menu: abre sessão nova antes da próxima fatura
+  if (r.sessaoQuebrada) await fecharSessao()
   if (r.status === 'OK') {
     falhasPortal = 0
     if (!comprovante_base64) {
