@@ -559,22 +559,34 @@ function parseXLSXFaturas(buffer, nomeArquivo) {
 
 // ── Playwright ────────────────────────────────────────────────────────────────
 
+// Na tela de login o Quiver define a função Logar() num script que às vezes ainda não carregou quando o "domcontentloaded" chega
+// (17/11/2026: "ReferenceError: Logar is not defined"). Espera ela existir (até 20 s) antes de chamar.
+async function logarSePreciso(page) {
+  if (!page.url().includes('default.aspx')) return
+  await page.waitForFunction(() => typeof window.Logar === 'function', null, { timeout: 20000 })
+  await page.evaluate(QUIVER_LOGIN)
+  await page.waitForTimeout(4500)
+}
+
 async function loginQuiver(page) {
   await page.goto(QUIVER_URL, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(1000)
-  if (page.url().includes('default.aspx')) {
-    await page.evaluate(QUIVER_LOGIN)
-    await page.waitForTimeout(4500)
-  }
+  await logarSePreciso(page)
 }
 
 async function recuperarSessao(page) {
   await page.goto(QUIVER_URL, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(1500)
-  if (page.url().includes('default.aspx')) {
-    await page.evaluate(QUIVER_LOGIN)
-    await page.waitForTimeout(4500)
-  }
+  await logarSePreciso(page)
+}
+
+/**
+ * Volta ao menu depois de UMA fatura. Se falhar, NÃO muda o resultado da fatura (o cadastro já foi feito ou já falhou antes disto):
+ * só avisa quem chamou, para abrir uma sessão nova antes da próxima (17/11/2026: faturas gravadas apareciam como falha).
+ */
+async function voltarAoMenu(page) {
+  try { await recuperarSessao(page); return true }
+  catch (e) { log.warn(`Não voltou ao menu do Quiver depois da fatura: ${String(e.message || e).split('\n')[0].slice(0, 160)}`); return false }
 }
 
 async function screenshot(page, nome) {
@@ -931,31 +943,31 @@ async function cadastrarFatura(page, fatura, idx, opts = {}) {
 
     if (erroJs) {
       const ss = await screenshot(page, `erro_${fatura.apolice}_end${fatura.endosso}_${Date.now()}.png`)
-      await recuperarSessao(page)
+      const menuOk = await voltarAoMenu(page)
       const classif = classificarErro(erroJs)
       log.warn(`FALHA [${fatura.apolice}]: ${classif.label}`)
-      return { ...fatura, status: 'FALHA', erro: erroJs, screenshotPath: ss, ...classif }
+      return { ...fatura, status: 'FALHA', erro: erroJs, screenshotPath: ss, ...classif, sessaoQuebrada: !menuOk }
     }
 
     if (!gravado) {
       // Sem o sinal de que o prêmio foi gravado não dá para afirmar que cadastrou.
       const ss = await screenshot(page, `timeout_${fatura.apolice}_end${fatura.endosso}_${Date.now()}.png`)
-      await recuperarSessao(page)
-      log.warn(`FALHA [${fatura.apolice}]: sem confirmação de gravação em 60s`)
-      return { ...fatura, status: 'FALHA', erro: 'TIMEOUT_SEM_CONFIRMACAO', screenshotPath: ss, ...classificarErro('TIMEOUT_SEM_CONFIRMACAO') }
+      const menuOk = await voltarAoMenu(page)
+      log.warn(`FALHA [${fatura.apolice}]: sem confirmação de gravação`)
+      return { ...fatura, status: 'FALHA', erro: 'TIMEOUT_SEM_CONFIRMACAO', screenshotPath: ss, ...classificarErro('TIMEOUT_SEM_CONFIRMACAO'), sessaoQuebrada: !menuOk }
     }
     const comprovante = opts.estrito ? await screenshot(page, `ok_${fatura.apolice}_end${fatura.endosso}_${Date.now()}.png`) : null
 
-    await recuperarSessao(page)
+    const menuOk = await voltarAoMenu(page)
     log.ok(`OK [${fatura.apolice}] ${fatura.segurado}`)
-    return { ...fatura, status: 'OK', erro: null, tipo: null, label: null, orientacao: null, screenshotPath: comprovante }
+    return { ...fatura, status: 'OK', erro: null, tipo: null, label: null, orientacao: null, screenshotPath: comprovante, sessaoQuebrada: !menuOk }
 
   } catch (e) {
     const ss = await screenshot(page, `erro_${fatura.apolice}_${Date.now()}.png`)
-    await recuperarSessao(page)
+    const menuOk = await voltarAoMenu(page)
     const classif = classificarErro(e.message)
     log.error(`ERRO [${fatura.apolice}]: ${e.message}`)
-    return { ...fatura, status: 'FALHA', erro: e.message, screenshotPath: ss, ...classif }
+    return { ...fatura, status: 'FALHA', erro: e.message, screenshotPath: ss, ...classif, sessaoQuebrada: !menuOk }
   }
 }
 
